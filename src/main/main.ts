@@ -164,6 +164,17 @@ ipcMain.handle(
   }
 )
 
+// Expose unsynced attendance for renderer-side syncing
+ipcMain.handle('attendance:unsynced', async () => {
+  return Database.getUnsynced()
+})
+
+// Allow renderer to mark rows as synced after successful ERP push
+ipcMain.handle('attendance:markSynced', async (_e, ids: number[]) => {
+  Database.markSynced(ids)
+  return { ok: true, updated: ids?.length || 0 }
+})
+
 ipcMain.handle('sync:run', async () => {
   const unsynced = Database.getUnsynced()
   if (!unsynced.length) return { synced: 0, errors: [] }

@@ -24,6 +24,9 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.invoke('attendance:list', { limit }),
   listAttendanceByDevice: (deviceId: number, limit?: number) =>
     ipcRenderer.invoke('attendance:listByDevice', { deviceId, limit }),
+  listUnsyncedAttendance: () => ipcRenderer.invoke('attendance:unsynced'),
+  markAttendanceSynced: (ids: number[]) =>
+    ipcRenderer.invoke('attendance:markSynced', ids),
   runSync: () => ipcRenderer.invoke('sync:run'),
   setCredentials: (baseUrl: string, auth: any) =>
     ipcRenderer.invoke('credentials:set', { baseUrl, auth }),

@@ -6,6 +6,7 @@ import {
   useFrappeAuth,
   useFrappeGetDocList,
   useFrappeGetDocCount,
+  useFrappeCreateDoc,
 } from 'frappe-react-sdk'
 
 type Stats = { total: number; unsynced: number; today: number }
@@ -54,7 +55,7 @@ function App({ onUrlChange }: { onUrlChange: (url: string) => void }) {
     const loadStats = async () => {
       try {
         const statsData = await window.api?.getStats?.()
-        setStats(statsData)
+        if (statsData) setStats(statsData as Stats)
       } catch (error) {
         console.error('Failed to load stats:', error)
       }
@@ -214,11 +215,129 @@ function Dashboard({ stats }: { stats: Stats | null }) {
   const employees = employeeCount ?? 0
   const shifts = shiftCount ?? 0
 
+  const { createDoc } = useFrappeCreateDoc()
+
+  const formatFrappeDateTime = (isoOrTs: string) => {
+    const d = new Date(isoOrTs)
+    const pad = (n: number) => String(n).padStart(2, '0')
+    const yyyy = d.getFullYear()
+    const mm = pad(d.getMonth() + 1)
+    const dd = pad(d.getDate())
+    const hh = pad(d.getHours())
+    const mi = pad(d.getMinutes())
+    const ss = pad(d.getSeconds())
+    return `${yyyy}-${mm}-${dd} ${hh}:${mi}:${ss}`
+  }
+
+  // Resolve ERP Employee by device user id using Employee.attendance_device_id
+  const findEmployeeNameByDeviceId = async (
+    deviceUserId: string
+  ): Promise<string | null> => {
+    try {
+      const params = new URLSearchParams({
+        fields: JSON.stringify(['name', 'attendance_device_id']),
+        filters: JSON.stringify([
+          ['attendance_device_id', '=', String(deviceUserId)],
+        ]),
+        limit: '1',
+      })
+      const base = (window as any).frappeBaseUrl || ''
+      const res = await fetch(
+        `${base}/api/resource/Employee?${params.toString()}`,
+        {
+          credentials: 'include',
+        }
+      )
+      if (!res.ok) return null
+      const json = (await res.json()) as any
+      return json?.data?.[0]?.name || null
+    } catch {
+      return null
+    }
+  }
+
   const sync = async () => {
-    const res = await window.api?.runSync?.()
-    setSyncResult(
-      `Synced ${res?.synced ?? 0} records. Errors: ${res?.errors?.length ?? 0}`
-    )
+    setSyncResult('Syncing...')
+    try {
+      // Pull unsynced from local DB
+      const unsynced = (await (
+        window as any
+      ).api?.listUnsyncedAttendance?.()) as
+        | {
+            id: number
+            device_id: number
+            employee_id: string
+            timestamp: string
+            status: 'IN' | 'OUT'
+          }[]
+        | undefined
+
+      if (!unsynced?.length) {
+        setSyncResult('Synced 0 records. Errors: 0')
+        return
+      }
+
+      const results: { ok: boolean; id?: number; error?: string }[] = []
+      const employeeCache = new Map<string, string | null>()
+      for (const row of unsynced) {
+        try {
+          let employeeName: string | null =
+            employeeCache.get(row.employee_id) ?? null
+          if (employeeName === null && !employeeCache.has(row.employee_id)) {
+            employeeName = await findEmployeeNameByDeviceId(row.employee_id)
+            employeeCache.set(row.employee_id, employeeName)
+          }
+          if (!employeeName) {
+            results.push({
+              ok: false,
+              error: `No Employee mapped for device id ${row.employee_id}`,
+            })
+            continue
+          }
+
+          const payload: any = {
+            employee: employeeName,
+            time: formatFrappeDateTime(row.timestamp),
+            log_type: row.status === 'IN' ? 'IN' : 'OUT',
+            // Optional extras for traceability in ERP
+            device_id: String(row.device_id),
+          }
+          await createDoc('Employee Checkin', payload)
+          results.push({ ok: true, id: row.id })
+        } catch (e: any) {
+          console.error('Employee Checkin create failed', e)
+          results.push({ ok: false, error: e?.message || 'Unknown error' })
+        }
+      }
+
+      const successIds = results
+        .map((r, i) => (r.ok ? unsynced[i].id : null))
+        .filter(Boolean) as number[]
+
+      if (successIds.length) {
+        await (window as any).api?.markAttendanceSynced?.(successIds)
+      }
+
+      setSyncResult(
+        `Synced ${successIds.length} records. Errors: ${
+          results.filter((r) => !r.ok).length
+        }`
+      )
+
+      // Refresh dashboard cards and recent logs
+      await Promise.all([
+        (async () => {
+          const statsData = await (window as any).api?.getStats?.()
+          ;(window as any).setStats?.(statsData)
+        })(),
+        (async () => {
+          const logs = await (window as any).api?.listAttendance?.(20)
+          setRecentLogs((logs as any) || [])
+        })(),
+      ])
+    } catch (err: any) {
+      setSyncResult(`Sync failed: ${err?.message || 'Unknown error'}`)
+    }
   }
 
   return (
@@ -341,7 +460,7 @@ function Devices() {
 
   const loadDevices = useCallback(async () => {
     try {
-      const list = (await window.api?.listDevices?.()) as any
+      const list = (await (window as any).api?.listDevices?.()) as any
       setDevices(list || [])
       if ((list || []).length && selectedDeviceId == null) {
         setSelectedDeviceId(list[0].id)
@@ -360,7 +479,7 @@ function Devices() {
       return
     }
     try {
-      const logs = (await window.api?.listAttendanceByDevice?.(
+      const logs = (await (window as any).api?.listAttendanceByDevice?.(
         deviceId,
         20
       )) as any
@@ -377,6 +496,35 @@ function Devices() {
   useEffect(() => {
     loadDeviceLogs(selectedDeviceId)
   }, [selectedDeviceId, loadDeviceLogs])
+  const { createDoc: createCheckin } = useFrappeCreateDoc()
+
+  const findEmployeeNameByDeviceId = useCallback(
+    async (deviceUserId: string): Promise<string | null> => {
+      try {
+        const params = new URLSearchParams({
+          fields: JSON.stringify(['name', 'attendance_device_id']),
+          filters: JSON.stringify([
+            ['attendance_device_id', '=', String(deviceUserId)],
+          ]),
+          limit: '1',
+        })
+        const base = (window as any).frappeBaseUrl || ''
+        const res = await fetch(
+          `${base}/api/resource/Employee?${params.toString()}`,
+          {
+            credentials: 'include',
+          }
+        )
+        if (!res.ok) return null
+        const json = (await res.json()) as any
+        return json?.data?.[0]?.name || null
+      } catch {
+        return null
+      }
+    },
+    []
+  )
+
   const test = async () => {
     const res = await window.api?.testDevice?.(ip, Number(port))
     setResult(res?.ok ? 'Connected' : `Failed: ${res?.error}`)
@@ -402,7 +550,7 @@ function Devices() {
     setFetching(true)
     setResult('')
     try {
-      const res = (await window.api?.fetchLogs?.(
+      const res = (await (window as any).api?.fetchLogs?.(
         ip,
         Number(port),
         name,
@@ -414,16 +562,60 @@ function Devices() {
       }
       const imported = res?.imported ?? 0
       // Update stats after import
-      const statsData = await window.api?.getStats?.()
+      const statsData = await (window as any).api?.getStats?.()
       ;(window as any).setStats?.(statsData)
       // Reload device logs
       await loadDeviceLogs(selectedDeviceId)
-      // Auto sync to ERPNext
-      const syncRes = await window.api?.runSync?.()
+      // Auto sync to ERPNext using frappe-react-sdk
+      const unsynced = (await (
+        window as any
+      ).api?.listUnsyncedAttendance?.()) as
+        | {
+            id: number
+            device_id: number
+            employee_id: string
+            timestamp: string
+            status: 'IN' | 'OUT'
+          }[]
+        | undefined
+
+      let syncedCount = 0
+      let errorCount = 0
+      if (unsynced?.length) {
+        const successIds: number[] = []
+        const employeeCache = new Map<string, string | null>()
+        for (const row of unsynced) {
+          try {
+            let employeeName: string | null =
+              employeeCache.get(row.employee_id) ?? null
+            if (employeeName === null && !employeeCache.has(row.employee_id)) {
+              employeeName = await findEmployeeNameByDeviceId(row.employee_id)
+              employeeCache.set(row.employee_id, employeeName)
+            }
+            if (!employeeName) {
+              errorCount += 1
+              continue
+            }
+
+            const payload: any = {
+              employee: employeeName,
+              time: row.timestamp,
+              log_type: row.status === 'IN' ? 'IN' : 'OUT',
+              device_id: String(row.device_id),
+            }
+            await createCheckin('Employee Checkin', payload)
+            successIds.push(row.id)
+          } catch (e) {
+            errorCount += 1
+          }
+        }
+        if (successIds.length) {
+          await (window as any).api?.markAttendanceSynced?.(successIds)
+          syncedCount = successIds.length
+        }
+      }
       setResult(
-        `Imported ${imported} logs. Synced ${syncRes?.synced ?? 0}. Errors: ${
-          syncRes?.errors?.length ?? 0
-        }`
+        `Imported ${imported} logs. Synced ${syncedCount}. Errors: ${errorCount}`
       )
     } catch (e: any) {
       setResult(`Failed: ${e?.message || 'Unknown error'}`)
@@ -518,7 +710,7 @@ function Devices() {
             <button
               className='btn text-red-600'
               onClick={async () => {
-                await window.api?.removeDevice?.(selectedDeviceId)
+                await (window as any).api?.removeDevice?.(selectedDeviceId)
                 setSelectedDeviceId(null)
                 setResult('Device deleted')
                 await loadDevices()
@@ -866,6 +1058,12 @@ function AppWrapper() {
     [frappeUrl]
   )
 
+  // Compute provider URL and expose base URL globally BEFORE any conditional return
+  const providerUrl = import.meta.env.DEV ? '/frappe' : frappeUrl
+  useEffect(() => {
+    ;(window as any).frappeBaseUrl = providerUrl
+  }, [providerUrl])
+
   if (!isUrlLoaded) {
     return (
       <div className='min-h-screen bg-slate-50 flex items-center justify-center'>
@@ -873,8 +1071,6 @@ function AppWrapper() {
       </div>
     )
   }
-
-  const providerUrl = import.meta.env.DEV ? '/frappe' : frappeUrl
 
   return (
     <FrappeProvider url={providerUrl} enableSocket={false}>
@@ -896,8 +1092,10 @@ declare global {
       fetchLogs: (
         ip: string,
         port?: number,
-        name?: string
-      ) => Promise<{ imported: number }>
+        name?: string,
+        commKey?: string,
+        useUdp?: boolean
+      ) => Promise<{ imported: number; error?: string }>
       listAttendance: (limit?: number) => Promise<
         {
           id: number
@@ -907,6 +1105,47 @@ declare global {
           synced: 0 | 1
         }[]
       >
+      listAttendanceByDevice: (
+        deviceId: number,
+        limit?: number
+      ) => Promise<
+        {
+          id: number
+          employee_id: string
+          timestamp: string
+          status: 'IN' | 'OUT'
+          synced: 0 | 1
+        }[]
+      >
+      listUnsyncedAttendance: () => Promise<
+        {
+          id: number
+          device_id: number
+          employee_id: string
+          timestamp: string
+          status: 'IN' | 'OUT'
+        }[]
+      >
+      markAttendanceSynced: (
+        ids: number[]
+      ) => Promise<{ ok: true; updated: number }>
+      listDevices: () => Promise<
+        {
+          id: number
+          name: string
+          ip: string
+          port: number
+          comm_key?: string
+          use_udp?: number
+        }[]
+      >
+      addDevice: (
+        name: string,
+        ip: string,
+        port: number,
+        opts?: { commKey?: string; useUdp?: boolean }
+      ) => Promise<{ id: number }>
+      removeDevice: (id: number) => Promise<void>
       runSync: () => Promise<{ synced: number; errors: string[] }>
       setCredentials: (baseUrl: string, auth: any) => Promise<void>
       getCredentials: () => Promise<{ baseUrl: string; auth: any } | null>
