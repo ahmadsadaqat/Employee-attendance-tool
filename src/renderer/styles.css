@@ -1,0 +1,13 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+.input {
+  @apply border rounded px-2 py-1 w-full;
+}
+.btn {
+  @apply px-3 py-2 rounded bg-slate-900 text-white hover:bg-slate-700;
+}
+.btn-secondary {
+  @apply px-3 py-2 rounded bg-slate-200 text-slate-800 hover:bg-slate-300 border border-slate-300;
+}
