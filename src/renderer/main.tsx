@@ -8,6 +8,8 @@ import {
   useFrappeGetDocCount,
   useFrappeCreateDoc,
 } from 'frappe-react-sdk'
+import { Logo } from './Logo'
+import { Mail, Lock, ArrowRight, AlertCircle, Globe } from 'lucide-react'
 
 type Stats = { total: number; unsynced: number; today: number }
 
@@ -876,76 +878,57 @@ function Employees() {
 }
 
 function Login({ onUrlChange }: { onUrlChange: (url: string) => void }) {
-  const [username, setUsername] = useState('Administrator')
+  const [url, setUrl] = useState('https://portal.nexo4erp.com')
+  const [email, setEmail] = useState('Administrator')
   const [password, setPassword] = useState('')
-  const [frappeUrl, setFrappeUrl] = useState('https://portal.nexo4erp.com')
-  const [result, setResult] = useState('')
-  const [loading, setLoading] = useState(false)
-  const { login, currentUser } = useFrappeAuth()
+  const [error, setError] = useState('')
+  const [isLoading, setIsLoading] = useState(false)
+  const { login } = useFrappeAuth()
 
-  // Debug currentUser in Login component
-  useEffect(() => {
-    console.log('Login component - currentUser changed:', currentUser)
-  }, [currentUser])
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError('')
+    setIsLoading(true)
 
-  const validateUrl = (url: string): boolean => {
     try {
-      const urlObj = new URL(url)
-      return urlObj.protocol === 'http:' || urlObj.protocol === 'https:'
-    } catch {
-      return false
-    }
-  }
+      // Validate URL
+      try {
+        const urlObj = new URL(url)
+        if (urlObj.protocol !== 'http:' && urlObj.protocol !== 'https:') {
+          throw new Error('Invalid protocol')
+        }
+      } catch {
+        setError('Please enter a valid URL (http:// or https://)')
+        setIsLoading(false)
+        return
+      }
 
-  const doLogin = async () => {
-    if (!validateUrl(frappeUrl)) {
-      setResult('Please enter a valid URL (http:// or https://)')
-      return
-    }
+      // Update provider URL
+      onUrlChange(url)
 
-    setLoading(true)
-    setResult('')
-    try {
-      console.log('Attempting login with:', username, 'to:', frappeUrl)
-
-      // Update the provider URL before attempting login
-      onUrlChange(frappeUrl)
-
-      // Use correct credential keys per frappe-react-sdk
-      const result = await login({ username, password })
+      // Login
+      const result = await login({ username: email, password })
       console.log('Login result:', result)
-      setResult('Login successful')
 
-      // Persist credentials for main process sync
-      await window.api?.setCredentials?.(frappeUrl, {
+      // Persist credentials
+      await window.api?.setCredentials?.(url, {
         mode: 'password',
-        username,
+        username: email,
         password,
       })
 
-      console.log('Credentials saved, login successful')
+      // Success is handled by App component observing currentUser
     } catch (e: any) {
       console.error('Login error:', e)
       let errorMessage = 'Unknown error'
-
       if (e?.message) {
         if (e.message.includes('401') || e.message.includes('Unauthorized')) {
           errorMessage = 'Invalid username or password'
-        } else if (
-          e.message.includes('403') ||
-          e.message.includes('Forbidden')
-        ) {
-          errorMessage = 'Access denied. Check your credentials.'
         } else if (
           e.message.includes('404') ||
           e.message.includes('Not Found')
         ) {
           errorMessage = 'Server not found. Check the URL.'
-        } else if (
-          e.message.includes('500') ||
-          e.message.includes('Internal Server Error')
-        ) {
-          errorMessage = 'Server error. Please try again later.'
         } else if (
           e.message.includes('NetworkError') ||
           e.message.includes('fetch')
@@ -955,65 +938,155 @@ function Login({ onUrlChange }: { onUrlChange: (url: string) => void }) {
           errorMessage = e.message
         }
       }
-
-      setResult(`Login failed: ${errorMessage}`)
+      setError(errorMessage)
     } finally {
-      setLoading(false)
+      setIsLoading(false)
     }
   }
 
   return (
-    <div className='max-w-lg bg-white p-4 rounded border space-y-3'>
-      <div className='text-lg font-semibold'>ERPNext Login</div>
-
-      <div className='space-y-3'>
-        <div className='grid grid-cols-3 gap-2 items-center'>
-          <label>Server URL</label>
-          <input
-            className='col-span-2 input'
-            value={frappeUrl}
-            onChange={(e) => setFrappeUrl(e.target.value)}
-            placeholder='https://your-frappe-instance.com'
-          />
+    <div className='min-h-screen bg-slate-50 dark:bg-slate-900 flex items-center justify-center p-4 transition-colors duration-300'>
+      <div className='max-w-md w-full bg-white dark:bg-slate-800 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-700 overflow-hidden'>
+        {/* Header Section */}
+        <div className='px-8 pt-8 pb-6 text-center'>
+          <div className='flex justify-center mb-6'>
+            <Logo />
+          </div>
+          <h2 className='text-2xl font-bold text-slate-800 dark:text-slate-100'>
+            Welcome Back
+          </h2>
+          <p className='text-slate-500 dark:text-slate-400 mt-2 text-sm'>
+            Sign in to access the control panel
+          </p>
         </div>
 
-        <div className='grid grid-cols-3 gap-2 items-center'>
-          <label>Username</label>
-          <input
-            className='col-span-2 input'
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-          />
+        {/* Form Section */}
+        <div className='px-8 pb-8'>
+          <form onSubmit={handleSubmit} className='space-y-5'>
+            {error && (
+              <div className='bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 p-3 rounded-lg text-sm flex items-center gap-2 animate-fade-in'>
+                <AlertCircle size={16} />
+                {error}
+              </div>
+            )}
+
+            <div>
+              <label className='block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5'>
+                ERP Server URL
+              </label>
+              <div className='relative'>
+                <div className='absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none'>
+                  <Globe size={18} className='text-slate-400' />
+                </div>
+                <input
+                  type='url'
+                  required
+                  value={url}
+                  onChange={(e) => setUrl(e.target.value)}
+                  className='block w-full pl-10 pr-3 py-2.5 border border-slate-300 dark:border-slate-600 rounded-xl bg-white dark:bg-slate-900 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all sm:text-sm font-mono'
+                  placeholder='https://api.client-erp.com'
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className='block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5'>
+                Email Address
+              </label>
+              <div className='relative'>
+                <div className='absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none'>
+                  <Mail size={18} className='text-slate-400' />
+                </div>
+                <input
+                  type='text'
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className='block w-full pl-10 pr-3 py-2.5 border border-slate-300 dark:border-slate-600 rounded-xl bg-white dark:bg-slate-900 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all sm:text-sm'
+                  placeholder='name@company.com'
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className='block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5'>
+                Password
+              </label>
+              <div className='relative'>
+                <div className='absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none'>
+                  <Lock size={18} className='text-slate-400' />
+                </div>
+                <input
+                  type='password'
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className='block w-full pl-10 pr-3 py-2.5 border border-slate-300 dark:border-slate-600 rounded-xl bg-white dark:bg-slate-900 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all sm:text-sm'
+                  placeholder='••••••••'
+                />
+              </div>
+            </div>
+
+            <div className='flex items-center justify-between'>
+              <div className='flex items-center'>
+                <input
+                  id='remember-me'
+                  name='remember-me'
+                  type='checkbox'
+                  className='h-4 w-4 text-teal-600 focus:ring-teal-500 border-gray-300 rounded'
+                />
+                <label
+                  htmlFor='remember-me'
+                  className='ml-2 block text-sm text-slate-600 dark:text-slate-400'
+                >
+                  Remember me
+                </label>
+              </div>
+            </div>
+
+            <button
+              type='submit'
+              disabled={isLoading}
+              className='w-full flex justify-center items-center gap-2 py-2.5 px-4 border border-transparent rounded-xl shadow-sm text-sm font-bold text-white bg-teal-600 hover:bg-teal-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-teal-500 disabled:opacity-70 disabled:cursor-not-allowed transition-all'
+            >
+              {isLoading ? (
+                <div className='w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin' />
+              ) : (
+                <>
+                  Sign In <ArrowRight size={16} />
+                </>
+              )}
+            </button>
+          </form>
+
+          <div className='mt-6 text-center'>
+            <p className='text-xs text-slate-500 dark:text-slate-400'>
+              By signing in, you agree to our{' '}
+              <a
+                href='#'
+                className='underline hover:text-slate-800 dark:hover:text-slate-200'
+              >
+                Terms of Service
+              </a>{' '}
+              and{' '}
+              <a
+                href='#'
+                className='underline hover:text-slate-800 dark:hover:text-slate-200'
+              >
+                Privacy Policy
+              </a>
+              .
+            </p>
+          </div>
         </div>
 
-        <div className='grid grid-cols-3 gap-2 items-center'>
-          <label>Password</label>
-          <input
-            className='col-span-2 input'
-            type='password'
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
+        {/* Footer decoration */}
+        <div className='bg-slate-50 dark:bg-slate-700/50 py-3 px-8 border-t border-slate-100 dark:border-slate-700 flex justify-center gap-4'>
+          <div className='h-1.5 w-1.5 rounded-full bg-slate-300 dark:bg-slate-600'></div>
+          <div className='h-1.5 w-1.5 rounded-full bg-slate-300 dark:bg-slate-600'></div>
+          <div className='h-1.5 w-1.5 rounded-full bg-slate-300 dark:bg-slate-600'></div>
         </div>
       </div>
-
-      <button className='btn w-full' onClick={doLogin} disabled={loading}>
-        {loading ? 'Signing in...' : 'Sign In'}
-      </button>
-
-      {result && (
-        <div
-          className={`text-sm p-2 rounded ${
-            result.includes('successful')
-              ? 'text-green-700 bg-green-50 border border-green-200'
-              : result.includes('failed') || result.includes('error')
-              ? 'text-red-700 bg-red-50 border border-red-200'
-              : 'text-slate-600 bg-slate-50 border border-slate-200'
-          }`}
-        >
-          {result}
-        </div>
-      )}
     </div>
   )
 }
