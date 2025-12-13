@@ -179,28 +179,7 @@ export default function Dashboard({ currentUser: username, logout }: DashboardPr
     handleForceFetchDevices();
   }, []);
 
-  // SIMULATION: Real-time traffic & Background Sync
-  useEffect(() => {
-    // Generate a new check-in every 10-20 seconds to simulate live traffic
-    const interval = setInterval(() => {
-        const newRecord = generateSingleCheckIn(true); // Synced immediately
 
-        // 1. Add to local list
-        setCheckIns(prev => [newRecord, ...prev]);
-
-        // 2. Trigger Welcome Popup
-        setLastCheckIn(newRecord);
-
-        // 3. Update stats slightly
-        setStats(prev => ({
-            ...prev,
-            uptime: Math.min(100, prev.uptime + 0.01)
-        }));
-
-    }, 12000);
-
-    return () => clearInterval(interval);
-  }, []);
 
   const handleLogout = () => {
     logout();

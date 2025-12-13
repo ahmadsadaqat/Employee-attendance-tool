@@ -18,9 +18,9 @@
   },
   "dependencies": {
     "better-sqlite3": "^11.10.0",
+    "electron-store": "^8.1.0",
     "frappe-react-sdk": "^1.12.0",
     "is-online": "^12.0.1",
-    "keytar": "^7.9.0",
     "lucide-react": "^0.561.0",
     "node-zklib": "^1.3.0",
     "react": "^19.1.1",
@@ -49,7 +49,7 @@
   },
   "build": {
     "appId": "com.nexo.employees",
-    "icon": "build/icon.svg",
+    "icon": "build/icon.png",
     "files": [
       "dist/**",
       "dist-electron/**",

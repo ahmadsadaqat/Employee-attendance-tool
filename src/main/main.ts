@@ -1,9 +1,11 @@
-import { app, BrowserWindow, ipcMain } from 'electron'
+import { app, BrowserWindow, ipcMain, safeStorage } from 'electron'
 import path from 'node:path'
 import { Database } from '../db/sqlite'
 import { ZKClient } from './zkclient'
 import { FrappeApp } from 'frappe-js-sdk'
-import keytar from 'keytar'
+import Store from 'electron-store'
+
+const store = new Store()
 
 let win: BrowserWindow | null
 
@@ -175,14 +177,33 @@ ipcMain.handle('attendance:markSynced', async (_e, ids: number[]) => {
   return { ok: true, updated: ids?.length || 0 }
 })
 
+// Helper to get credentials
+async function getCredentials() {
+  try {
+    const encrypted = store.get('erp-credentials') as string
+    if (!encrypted) return null
+    if (safeStorage.isEncryptionAvailable()) {
+      const buffer = Buffer.from(encrypted, 'hex')
+      const decrypted = safeStorage.decryptString(buffer)
+      return JSON.parse(decrypted)
+    } else {
+      // Fallback for dev envs where safeStorage might not be available
+      return JSON.parse(encrypted)
+    }
+  } catch (e) {
+    console.error('Failed to retrieve credentials:', e)
+    return null
+  }
+}
+
 ipcMain.handle('sync:run', async () => {
   const unsynced = Database.getUnsynced()
   if (!unsynced.length) return { synced: 0, errors: [] }
 
-  const creds = await keytar.getPassword('nexo-employees', 'erp-auth')
+  const creds = await getCredentials()
   if (!creds) return { synced: 0, errors: ['No ERP credentials stored'] }
 
-  const { baseUrl, auth } = JSON.parse(creds)
+  const { baseUrl, auth } = creds
 
   // Initialize Frappe app with appropriate auth
   let app: FrappeApp
@@ -238,62 +259,25 @@ ipcMain.handle(
   async (_e, { baseUrl, auth }: { baseUrl: string; auth: any }) => {
     console.log('Main process: Setting credentials for', baseUrl)
     try {
-      await keytar.setPassword(
-        'nexo-employees',
-        'erp-auth',
-        JSON.stringify({ baseUrl, auth })
-      )
-      console.log('Main process: Credentials saved to keytar')
-    } catch (e) {
-      console.error('Main process: Failed to save to keytar:', e)
-      // Fallback: store in a simple file
-      const fs = require('fs')
-      const path = require('path')
-      const credPath = path.join(__dirname, 'credentials.json')
-      try {
-        fs.writeFileSync(credPath, JSON.stringify({ baseUrl, auth }))
-        console.log(
-          'Main process: Credentials saved to file fallback at',
-          credPath
-        )
-      } catch (fileError) {
-        console.error('Main process: Failed to save to file:', fileError)
+      const data = JSON.stringify({ baseUrl, auth })
+      if (safeStorage.isEncryptionAvailable()) {
+        const encrypted = safeStorage.encryptString(data)
+        store.set('erp-credentials', encrypted.toString('hex'))
+        console.log('Main process: Credentials encrypted and saved')
+      } else {
+        store.set('erp-credentials', data)
+        console.warn('Main process: Encryption unavailable, saved as plain text')
       }
+    } catch (e) {
+      console.error('Main process: Failed to save credentials:', e)
+      throw e
     }
   }
 )
 
 ipcMain.handle('credentials:get', async () => {
   console.log('Main process: Getting credentials...')
-  try {
-    const creds = await keytar.getPassword('nexo-employees', 'erp-auth')
-    if (creds) {
-      console.log('Main process: Credentials retrieved from keytar')
-      return JSON.parse(creds)
-    }
-  } catch (e) {
-    console.error('Main process: Failed to get from keytar:', e)
-  }
-
-  // Fallback: read from file
-  const fs = require('fs')
-  const path = require('path')
-  const credPath = path.join(__dirname, 'credentials.json')
-  console.log('Main process: Checking file fallback at', credPath)
-  try {
-    if (fs.existsSync(credPath)) {
-      const creds = fs.readFileSync(credPath, 'utf8')
-      console.log('Main process: Credentials retrieved from file fallback')
-      return JSON.parse(creds)
-    } else {
-      console.log('Main process: Credentials file does not exist')
-    }
-  } catch (fileError) {
-    console.error('Main process: Failed to read from file:', fileError)
-  }
-
-  console.log('Main process: No credentials found')
-  return null
+  return await getCredentials()
 })
 
 ipcMain.handle('network:status', async () => {
