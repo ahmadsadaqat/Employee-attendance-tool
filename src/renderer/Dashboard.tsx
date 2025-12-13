@@ -119,7 +119,7 @@ export default function Dashboard({ currentUser: username, logout }: DashboardPr
 
   // App State
   const [checkIns, setCheckIns] = useState<CheckInRecord[]>([]);
-  const [devices, setDevices] = useState<Device[]>(mockDevices);
+  const [devices, setDevices] = useState<Device[]>([]);
   const [alerts, setAlerts] = useState<SystemAlert[]>(mockAlerts);
   const [isAlertsModalOpen, setIsAlertsModalOpen] = useState(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
@@ -150,8 +150,32 @@ export default function Dashboard({ currentUser: username, logout }: DashboardPr
     }
   }, [appSettings.darkMode]);
 
+  // Load Devices from Backend
+  const loadDevices = async () => {
+    try {
+      const list = (await (window as any).api?.listDevices?.()) as any[];
+      if (list) {
+        const mappedDevices: Device[] = list.map((d: any) => ({
+          id: String(d.id),
+          name: d.name,
+          location: 'Unknown', // Backend doesn't store location yet
+          status: 'OFFLINE', // Default status
+          lastPing: '-',
+          type: 'BIOMETRIC', // Default type
+          ipAddress: d.ip,
+          port: String(d.port)
+        }));
+        setDevices(mappedDevices);
+      }
+    } catch (e) {
+      console.error("Failed to load devices", e);
+      addNotification("Failed to load devices from system", 'WARNING', 'System');
+    }
+  };
+
   // Initial Data Load
   useEffect(() => {
+    loadDevices();
     handleForceFetchDevices();
   }, []);
 
@@ -218,15 +242,29 @@ export default function Dashboard({ currentUser: username, logout }: DashboardPr
     }, 1000);
   };
 
-  const handleAddDevice = (device: Device) => {
-    setDevices([...devices, device]);
-    addNotification(`New device '${device.name}' added successfully`, 'SUCCESS', 'Device Manager');
+  const handleAddDevice = async (device: Device) => {
+    try {
+      await (window as any).api?.addDevice?.(
+        device.name,
+        device.ipAddress,
+        Number(device.port),
+        {} // Options like commKey, useUdp can be added here if UI supports them
+      );
+      addNotification(`New device '${device.name}' added successfully`, 'SUCCESS', 'Device Manager');
+      loadDevices();
+    } catch (e: any) {
+      addNotification(`Failed to add device: ${e.message}`, 'CRITICAL', 'Device Manager');
+    }
   };
 
-  const handleDeleteDevice = (id: string) => {
-    const device = devices.find(d => d.id === id);
-    setDevices(devices.filter(d => d.id !== id));
-    addNotification(`Device '${device?.name || 'Unknown'}' removed`, 'INFO', 'Device Manager');
+  const handleDeleteDevice = async (id: string) => {
+    try {
+      await (window as any).api?.removeDevice?.(Number(id));
+      addNotification(`Device removed`, 'INFO', 'Device Manager');
+      loadDevices();
+    } catch (e: any) {
+      addNotification(`Failed to remove device: ${e.message}`, 'CRITICAL', 'Device Manager');
+    }
   };
 
   const handleSaveSettings = (newSettings: AppSettings) => {
