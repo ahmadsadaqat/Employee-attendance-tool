@@ -1,0 +1,5 @@
+{
+  "name": "NEXO ERP Access Control",
+  "description": "Enterprise Resource Planning interface for biometric access control and attendance tracking.",
+  "requestFramePermissions": []
+}

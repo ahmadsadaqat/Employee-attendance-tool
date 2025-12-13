@@ -48,6 +48,7 @@
   },
   "build": {
     "appId": "com.nexo.employees",
+    "icon": "build/icon.svg",
     "files": [
       "dist/**",
       "dist-electron/**",

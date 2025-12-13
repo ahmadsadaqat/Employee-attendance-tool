@@ -8,6 +8,7 @@ import {
   useFrappeGetDocCount,
   useFrappeCreateDoc,
 } from 'frappe-react-sdk'
+import logoUrl from './assets/logo.svg'
 import { Logo } from './Logo'
 import { Mail, Lock, ArrowRight, AlertCircle, Globe } from 'lucide-react'
 
@@ -94,59 +95,53 @@ function App({ onUrlChange }: { onUrlChange: (url: string) => void }) {
     }
   }, [checkNetworkStatus])
 
+  if (!currentUser) {
+    return <Login onUrlChange={onUrlChange} />
+  }
+
   return (
     <div className='min-h-screen bg-slate-50 text-slate-900'>
       <header className='px-4 py-3 border-b bg-white flex items-center gap-3'>
-        <h1 className='font-semibold text-lg'>Nexo Employees</h1>
+        <img src={logoUrl} alt="Nexo ERP" className="h-8 w-auto" />
         <span
           className={online ? 'text-green-600 text-sm' : 'text-red-600 text-sm'}
         >
           {online ? 'Online' : 'Offline'}
         </span>
         <nav className='ml-auto flex gap-2 text-sm'>
-          {currentUser && (
-            <>
-              <button
-                className='px-3 py-1 rounded hover:bg-slate-100'
-                onClick={() => setView('dashboard')}
-              >
-                Dashboard
-              </button>
-              <button
-                className='px-3 py-1 rounded hover:bg-slate-100'
-                onClick={() => setView('devices')}
-              >
-                Devices
-              </button>
-              <button
-                className='px-3 py-1 rounded hover:bg-slate-100'
-                onClick={() => setView('employees')}
-              >
-                Employees
-              </button>
-              <button
-                className='px-3 py-1 rounded hover:bg-slate-100 text-red-600'
-                onClick={() => {
-                  logout()
-                  setView('login')
-                }}
-              >
-                Logout ({currentUser})
-              </button>
-            </>
-          )}
+          <button
+            className='px-3 py-1 rounded hover:bg-slate-100'
+            onClick={() => setView('dashboard')}
+          >
+            Dashboard
+          </button>
+          <button
+            className='px-3 py-1 rounded hover:bg-slate-100'
+            onClick={() => setView('devices')}
+          >
+            Devices
+          </button>
+          <button
+            className='px-3 py-1 rounded hover:bg-slate-100'
+            onClick={() => setView('employees')}
+          >
+            Employees
+          </button>
+          <button
+            className='px-3 py-1 rounded hover:bg-slate-100 text-red-600'
+            onClick={() => {
+              logout()
+              setView('login')
+            }}
+          >
+            Logout ({currentUser})
+          </button>
         </nav>
       </header>
       <main className='p-4'>
-        {currentUser ? (
-          <>
-            {view === 'dashboard' && <Dashboard stats={stats} />}
-            {view === 'devices' && <Devices />}
-            {view === 'employees' && <Employees />}
-          </>
-        ) : (
-          <Login onUrlChange={onUrlChange} />
-        )}
+        {view === 'dashboard' && <Dashboard stats={stats} />}
+        {view === 'devices' && <Devices />}
+        {view === 'employees' && <Employees />}
       </main>
     </div>
   )
