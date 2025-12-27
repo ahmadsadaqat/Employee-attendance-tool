@@ -8,6 +8,7 @@ import {
   useFrappeGetDocCount,
   useFrappeCreateDoc,
 } from 'frappe-react-sdk'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import logoUrl from './assets/logo.svg'
 import { Logo } from './Logo'
 import { Mail, Lock, ArrowRight, AlertCircle, Globe } from 'lucide-react'
@@ -320,6 +321,8 @@ function AppWrapper() {
     ;(window as any).frappeBaseUrl = providerUrl
   }, [providerUrl])
 
+const queryClient = new QueryClient()
+
   if (!isUrlLoaded) {
     return (
       <div className='min-h-screen bg-slate-50 flex items-center justify-center'>
@@ -329,9 +332,11 @@ function AppWrapper() {
   }
 
   return (
-    <FrappeProvider url={providerUrl} enableSocket={false}>
-      <App onUrlChange={handleUrlChange} />
-    </FrappeProvider>
+    <QueryClientProvider client={queryClient}>
+      <FrappeProvider url={providerUrl} enableSocket={false} key={providerUrl}>
+        <App onUrlChange={handleUrlChange} />
+      </FrappeProvider>
+    </QueryClientProvider>
   )
 }
 

@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { useFrappeGetDocList } from 'frappe-react-sdk';
+import { useFrappeDocList, useDeviceLogs } from './hooks/useData';
 import {
   RefreshCw,
   Menu,
@@ -174,12 +174,16 @@ export default function Dashboard({ currentUser: username, logout }: DashboardPr
     }
   };
 
-  // Fetch Real Data from Frappe
-  const { data: frappeLogs, isLoading: frappeLoading, mutate: mutateLogs } = useFrappeGetDocList('Employee Checkin', {
+  // Fetch Real Data from Frappe using TanStack Query
+  const { data: frappeLogs, isLoading: frappeLoading, refetch: refetchLogs } = useFrappeDocList('Employee Checkin', {
     fields: ['name', 'employee', 'employee_name', 'time', 'device_id', 'log_type'],
     orderBy: { field: 'time', order: 'desc' },
-    limit: 500
+    limit: 500,
+    refetchInterval: 30000 // Poll every 30s auto-magically
   });
+
+  // ZKTeco Device Sync Mutation
+  const deviceSync = useDeviceLogs();
 
   // Simple state for chart data
   const [realChartData, setRealChartData] = useState<{ time: string, count: number }[]>([]);
@@ -251,13 +255,7 @@ export default function Dashboard({ currentUser: username, logout }: DashboardPr
     }
   }, [frappeLogs]);
 
-  // Poll for updates every 30 seconds
-  useEffect(() => {
-    const interval = setInterval(() => {
-      mutateLogs();
-    }, 30000);
-    return () => clearInterval(interval);
-  }, [mutateLogs]);
+  // Polling is now handled by useFrappeDocList's refetchInterval
 
   const handleLogout = () => {
     logout();
@@ -276,9 +274,15 @@ export default function Dashboard({ currentUser: username, logout }: DashboardPr
 
   const handleForceFetchDevices = async () => {
     setIsLoading(true);
-    await mutateLogs();
-    setIsLoading(false);
-    addNotification("Synced logs from ERP", 'SUCCESS', 'Device Sync');
+    try {
+        const count = await deviceSync.mutateAsync();
+        // refetchLogs() handled by invalidation in hook
+        addNotification(`Synced ${count} logs from Devices & ERP`, 'SUCCESS', 'Device Sync');
+    } catch (e: any) {
+        addNotification(`Sync failed: ${e.message}`, 'CRITICAL', 'Device Sync');
+    } finally {
+        setIsLoading(false);
+    }
   };
 
   const handleImportConfirm = (start: string, end: string, count: number) => {

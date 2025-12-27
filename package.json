@@ -17,6 +17,7 @@
     "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {
+    "@tanstack/react-query": "^5.90.12",
     "better-sqlite3": "^11.10.0",
     "electron-store": "^8.1.0",
     "frappe-react-sdk": "^1.12.0",
