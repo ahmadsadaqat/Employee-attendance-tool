@@ -72,7 +72,7 @@ const mockEmployees: Employee[] = [
   { id: '1', employeeId: 'EMP-1000', name: 'Alice Johnson', role: 'Senior Engineer', department: 'Engineering', shiftName: 'Standard Day', shiftStart: '09:00', shiftEnd: '17:00', avatar: 'https://picsum.photos/seed/205/100/100', status: 'ACTIVE' },
   { id: '2', employeeId: 'EMP-1001', name: 'Bob Smith', role: 'Sales Manager', department: 'Sales', shiftName: 'Standard Day', shiftStart: '09:00', shiftEnd: '17:00', avatar: 'https://picsum.photos/seed/206/100/100', status: 'ACTIVE' },
   { id: '3', employeeId: 'EMP-1002', name: 'Charlie Brown', role: 'Warehouse Lead', department: 'Operations', shiftName: 'Early Bird', shiftStart: '06:00', shiftEnd: '14:00', avatar: 'https://picsum.photos/seed/207/100/100', status: 'ACTIVE' },
-  { id: '4', employeeId: 'EMP-1003', name: 'Diana Prince', role: 'HR Specialist', department: 'HR', shiftName: 'Standard Day', shiftStart: '08:30', shiftEnd: '16:30', avatar: 'https://picsum.photos/seed/208/100/100', status: 'ON_LEAVE' },
+  { id: '4', employeeId: 'EMP-1003', name: 'Diana Prince', role: 'HR Specialist', department: 'HR', shiftName: 'Standard Day', shiftStart: '08:30', shiftEnd: '16:30', avatar: 'https://picsum.photos/seed/208/100/100', status: 'ACTIVE' },
   { id: '5', employeeId: 'EMP-1004', name: 'Evan Wright', role: 'Marketing Lead', department: 'Marketing', shiftName: 'Standard Day', shiftStart: '09:00', shiftEnd: '17:00', avatar: 'https://picsum.photos/seed/209/100/100', status: 'ACTIVE' },
 ];
 

@@ -26,7 +26,7 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ employees }) => {
              </tr>
            </thead>
            <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
-             {employees.map((emp) => (
+             {employees.filter(emp => emp.status === 'ACTIVE').map((emp) => (
                <tr key={emp.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-700/50 transition-colors">
                  <td className="px-6 py-4">
                    <div className="flex items-center gap-4">
@@ -59,8 +59,8 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ employees }) => {
                  </td>
                  <td className="px-6 py-4">
                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold ${
-                     emp.status === 'ACTIVE' 
-                       ? 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-800' 
+                     emp.status === 'ACTIVE'
+                       ? 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-800'
                        : 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-600'
                    }`}>
                      <span className={`w-1.5 h-1.5 rounded-full ${emp.status === 'ACTIVE' ? 'bg-emerald-500' : 'bg-slate-400'}`}></span>

@@ -4,11 +4,15 @@ import { Employee } from '../types';
 import { Clock, Calendar, Mail, Loader2 } from 'lucide-react';
 
 export const EmployeeList: React.FC = () => {
-  const { data, isLoading, error } = useFrappeGetDocList('Employee', {
+  const { data: employeesData, isLoading: employeesLoading, error: employeesError } = useFrappeGetDocList('Employee', {
     fields: ['name', 'employee_name', 'department', 'designation', 'status', 'image', 'default_shift']
   });
 
-  if (isLoading) {
+  const { data: shiftsData, isLoading: shiftsLoading } = useFrappeGetDocList('Shift Type', {
+    fields: ['name', 'start_time', 'end_time']
+  });
+
+  if (employeesLoading || shiftsLoading) {
     return (
       <div className="flex flex-col items-center justify-center p-12 text-slate-400">
         <Loader2 className="animate-spin mb-2" size={32} />
@@ -17,27 +21,45 @@ export const EmployeeList: React.FC = () => {
     );
   }
 
-  if (error) {
+  if (employeesError) {
     return (
       <div className="p-8 text-center text-red-500 bg-red-50 rounded-xl border border-red-100 dark:bg-red-900/10 dark:border-red-900/30">
         <p>Failed to load employees. Please check your connection.</p>
-        <p className="text-xs mt-1 opacity-70">{(error as any).message}</p>
+        <p className="text-xs mt-1 opacity-70">{(employeesError as any).message}</p>
       </div>
     );
   }
 
-  const employees: Employee[] = (data || []).map((doc: any) => ({
-    id: doc.name,
-    employeeId: doc.name,
-    name: doc.employee_name,
-    role: doc.designation || 'N/A',
-    department: doc.department || 'Unassigned',
-    shiftName: doc.default_shift || 'Standard Shift',
-    shiftStart: '09:00', // Placeholder as actual times require another fetch
-    shiftEnd: '17:00',
-    avatar: doc.image ? (doc.image.startsWith('http') ? doc.image : `${(window as any).frappeBaseUrl}${doc.image}`) : `https://ui-avatars.com/api/?name=${encodeURIComponent(doc.employee_name)}&background=random`,
-    status: doc.status === 'Active' ? 'ACTIVE' : 'ON_LEAVE' // Simple mapping
-  }));
+  // Create a map for quick shift lookup
+  const shiftMap = new Map<string, { start: string, end: string }>();
+  if (shiftsData) {
+    shiftsData.forEach((shift: any) => {
+      // Format times to HH:MM if they have seconds
+      const formatTime = (t: string) => t ? t.substring(0, 5) : '00:00';
+      shiftMap.set(shift.name, {
+        start: formatTime(shift.start_time),
+        end: formatTime(shift.end_time)
+      });
+    });
+  }
+
+  const employees: Employee[] = (employeesData || [])
+    .filter((doc: any) => doc.status === 'Active')
+    .map((doc: any) => {
+      const shiftDetails = doc.default_shift ? shiftMap.get(doc.default_shift) : null;
+      return {
+        id: doc.name,
+        employeeId: doc.name,
+        name: doc.employee_name,
+        role: doc.designation || 'N/A',
+        department: doc.department || 'Unassigned',
+        shiftName: doc.default_shift || 'Standard Shift',
+        shiftStart: shiftDetails?.start || '09:00',
+        shiftEnd: shiftDetails?.end || '17:00',
+        avatar: doc.image ? (doc.image.startsWith('http') ? doc.image : `${(window as any).frappeBaseUrl}${doc.image}`) : `https://ui-avatars.com/api/?name=${encodeURIComponent(doc.employee_name)}&background=random`,
+        status: 'ACTIVE'
+      };
+    });
 
   return (
     <div className="space-y-6">

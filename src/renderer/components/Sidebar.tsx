@@ -1,6 +1,6 @@
 import React from 'react';
 import { LayoutDashboard, Users, Fingerprint, Settings, ShieldCheck } from 'lucide-react';
-import { Logo } from './Logo';
+import logoSrc from '../assets/logo.svg';
 import { User } from '../types';
 
 interface SidebarProps {
@@ -38,7 +38,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, setIsOpen, currentView
         ${isOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
       `}>
         <div className="h-20 flex items-center px-6 border-b border-slate-100 dark:border-slate-700">
-          <img src="logo.svg" alt="Nexo Employees" width={24} height={24} />
+          <img src={logoSrc} alt="NEXO ERP" className="w-[150px]" />
         </div>
 
         <div className="p-4 space-y-1">
