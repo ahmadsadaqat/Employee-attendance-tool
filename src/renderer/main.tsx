@@ -42,12 +42,30 @@ function App({ onUrlChange }: { onUrlChange: (url: string) => void }) {
 
 
 function Login({ onUrlChange }: { onUrlChange: (url: string) => void }) {
-  const [url, setUrl] = useState('https://portal.nexo4erp.com')
-  const [email, setEmail] = useState('Administrator')
+  const [url, setUrl] = useState('')
+  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [rememberMe, setRememberMe] = useState(false)
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(false)
-  const { login } = useFrappeAuth()
+  const { login, updateCurrentUser } = useFrappeAuth()
+
+  useEffect(() => {
+    const loadCredentials = async () => {
+      try {
+        const creds = await window.api?.getCredentials?.()
+        if (creds) {
+          if (creds.baseUrl) setUrl(creds.baseUrl)
+          if (creds.auth?.username) setEmail(creds.auth.username)
+          if (creds.auth?.password) setPassword(creds.auth.password)
+          setRememberMe(true)
+        }
+      } catch (err) {
+        console.error('Failed to load credentials:', err)
+      }
+    }
+    loadCredentials()
+  }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -74,12 +92,17 @@ function Login({ onUrlChange }: { onUrlChange: (url: string) => void }) {
       const result = await login({ username: email, password })
       console.log('Login result:', result)
 
-      // Persist credentials
-      await window.api?.setCredentials?.(url, {
-        mode: 'password',
-        username: email,
-        password,
-      })
+      // Persist credentials only if Remember Me is checked
+      if (rememberMe) {
+        await window.api?.setCredentials?.(url, {
+          mode: 'password',
+          username: email,
+          password,
+        })
+      }
+
+      // Force reload to ensure session is picked up and redirect happens
+      window.location.reload()
 
       // Success is handled by App component observing currentUser
     } catch (e: any) {
@@ -197,6 +220,8 @@ function Login({ onUrlChange }: { onUrlChange: (url: string) => void }) {
                   id='remember-me'
                   name='remember-me'
                   type='checkbox'
+                  checked={rememberMe}
+                  onChange={(e) => setRememberMe(e.target.checked)}
                   className='h-4 w-4 text-teal-600 focus:ring-teal-500 border-gray-300 rounded'
                 />
                 <label
@@ -255,12 +280,6 @@ function Login({ onUrlChange }: { onUrlChange: (url: string) => void }) {
   )
 }
 
-// Ensure we only create root once
-let root: any = null
-if (!root) {
-  root = createRoot(document.getElementById('root')!)
-}
-
 // Create a wrapper component that can handle URL changes
 function AppWrapper() {
   const [frappeUrl, setFrappeUrl] = useState<string>(
@@ -316,6 +335,10 @@ function AppWrapper() {
   )
 }
 
+// Ensure we only create root once, even with HMR
+const container = document.getElementById('root')!
+const root = (container as any)._reactRoot || createRoot(container)
+;(container as any)._reactRoot = root
 root.render(<AppWrapper />)
 
 declare global {
