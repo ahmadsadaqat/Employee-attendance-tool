@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
-import { 
-  RefreshCw, 
+import {
+  RefreshCw,
   Menu,
   Search,
   Bell,
@@ -41,7 +41,7 @@ const generateSingleCheckIn = (synced: boolean = false): CheckInRecord => {
     { device: "Warehouse Gate A", location: "Loading Dock" },
     { device: "Server Room Bio", location: "Server Room" },
   ];
-  
+
   const i = Math.floor(Math.random() * names.length);
   const devInfo = devicesAndLocs[Math.floor(Math.random() * devicesAndLocs.length)];
 
@@ -55,7 +55,7 @@ const generateSingleCheckIn = (synced: boolean = false): CheckInRecord => {
     device: devInfo.device,
     location: devInfo.location,
     type: Math.random() > 0.4 ? 'CHECK_IN' : 'CHECK_OUT' as AccessType,
-    syncedToErp: synced, 
+    syncedToErp: synced,
   };
 };
 
@@ -105,7 +105,7 @@ function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [currentView, setCurrentView] = useState('dashboard');
   const [isLoading, setIsLoading] = useState(false);
-  
+
   // App State
   const [checkIns, setCheckIns] = useState<CheckInRecord[]>([]);
   const [devices, setDevices] = useState<Device[]>(mockDevices);
@@ -153,20 +153,20 @@ function App() {
     // Generate a new check-in every 10-20 seconds to simulate live traffic
     const interval = setInterval(() => {
         const newRecord = generateSingleCheckIn(true); // Synced immediately
-        
+
         // 1. Add to local list
         setCheckIns(prev => [newRecord, ...prev]);
-        
+
         // 2. Trigger Welcome Popup
         setLastCheckIn(newRecord);
-        
+
         // 3. Update stats slightly
         setStats(prev => ({
             ...prev,
             uptime: Math.min(100, prev.uptime + 0.01)
         }));
 
-    }, 12000); 
+    }, 12000);
 
     return () => clearInterval(interval);
   }, [currentUser]);
@@ -180,7 +180,7 @@ function App() {
       avatar: 'https://i.pravatar.cc/150?u=a042581f4e29026704d',
       lastLogin: new Date().toISOString()
     });
-    
+
     // Update settings with the client-specific URL
     setAppSettings(prev => ({
         ...prev,
@@ -212,7 +212,7 @@ function App() {
     setTimeout(() => {
       const newCheckIns = generateMockCheckIns(5); // Fetch last 5 logs from devices
       const merged = [...newCheckIns, ...checkIns].sort((a,b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-      
+
       setCheckIns(merged);
       setIsLoading(false);
       addNotification("Successfully fetched logs from 4 connected devices", 'SUCCESS', 'Device Sync');
@@ -301,23 +301,23 @@ function App() {
                     </div>
                     <p className="text-slate-500 dark:text-slate-400 text-xs">Real-time sync active</p>
                  </div>
-                 
+
                  {/* Minimal Stats */}
                  <div className="flex gap-3">
-                    <StatCard 
-                      label="Active Alerts" 
-                      value={alerts.length} 
-                      icon={AlertCircle} 
+                    <StatCard
+                      label="Active Alerts"
+                      value={alerts.length}
+                      icon={AlertCircle}
                       colorClass={alerts.some(a => a.severity === 'CRITICAL') ? "text-red-600 dark:text-red-400" : "text-blue-600 dark:text-blue-400"}
                       bgClass={alerts.some(a => a.severity === 'CRITICAL') ? "bg-red-50 dark:bg-red-900/30" : "bg-blue-50 dark:bg-blue-900/30"}
                       compact={true}
                       onClick={() => setIsAlertsModalOpen(true)}
                     />
-                    <StatCard 
-                      label="Uptime" 
-                      value={`${stats.uptime.toFixed(1)}%`} 
-                      icon={CheckCircle2} 
-                      colorClass="text-blue-600 dark:text-blue-400" 
+                    <StatCard
+                      label="Uptime"
+                      value={`${stats.uptime.toFixed(1)}%`}
+                      icon={CheckCircle2}
+                      colorClass="text-blue-600 dark:text-blue-400"
                       bgClass="bg-blue-50 dark:bg-blue-900/30"
                       compact={true}
                     />
@@ -326,7 +326,7 @@ function App() {
 
               {/* Action Buttons: Side by Side on Right */}
               <div className="flex flex-row gap-3 w-full xl:w-auto justify-end">
-                <button 
+                <button
                   onClick={() => setIsImportModalOpen(true)}
                   disabled={isLoading}
                   className="flex items-center gap-2 px-3 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 shadow-sm transition-all active:scale-95 disabled:opacity-70 whitespace-nowrap"
@@ -334,7 +334,7 @@ function App() {
                   <Download size={16} />
                   Force Import
                 </button>
-                <button 
+                <button
                   onClick={handleForceFetchDevices}
                   disabled={isLoading}
                   className="flex items-center gap-2 px-3 py-2 bg-teal-600 text-white rounded-lg text-sm font-medium hover:bg-teal-700 shadow-sm shadow-teal-200 dark:shadow-none transition-all active:scale-95 disabled:opacity-70 whitespace-nowrap"
@@ -349,7 +349,7 @@ function App() {
             <div className="mb-8">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="font-bold text-slate-800 dark:text-slate-100 text-lg">Connected Devices</h3>
-                <button 
+                <button
                   onClick={() => setCurrentView('devices')}
                   className="text-sm font-medium text-teal-600 dark:text-teal-400 hover:text-teal-700 hover:underline"
                 >
@@ -364,7 +364,7 @@ function App() {
                         device.status === 'ONLINE' ? 'bg-green-50 dark:bg-green-900/30 text-green-600 dark:text-green-400' :
                         device.status === 'OFFLINE' ? 'bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400' : 'bg-amber-50 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400'
                       }`}>
-                        {device.type === 'BIOMETRIC' ? <Fingerprint size={20} /> : 
+                        {device.type === 'BIOMETRIC' ? <Fingerprint size={20} /> :
                          device.type === 'RFID' ? <CreditCard size={20} /> : <Laptop size={20} />}
                       </div>
                       <div className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-[10px] font-bold border uppercase tracking-wide ${
@@ -419,11 +419,11 @@ function App() {
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={appSettings.darkMode ? "#334155" : "#f1f5f9"} />
                       <XAxis dataKey="time" axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 12}} dy={10} />
                       <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 12}} />
-                      <Tooltip 
-                        contentStyle={{ 
-                          backgroundColor: appSettings.darkMode ? '#1e293b' : '#fff', 
-                          borderRadius: '8px', 
-                          border: appSettings.darkMode ? '1px solid #334155' : '1px solid #e2e8f0', 
+                      <Tooltip
+                        contentStyle={{
+                          backgroundColor: appSettings.darkMode ? '#1e293b' : '#fff',
+                          borderRadius: '8px',
+                          border: appSettings.darkMode ? '1px solid #334155' : '1px solid #e2e8f0',
                           boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
                           color: appSettings.darkMode ? '#f8fafc' : '#1e293b'
                         }}
@@ -447,10 +447,10 @@ function App() {
 
   return (
     <div className="flex h-screen bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 font-sans transition-colors duration-300">
-      <Sidebar 
-        isOpen={sidebarOpen} 
-        setIsOpen={setSidebarOpen} 
-        currentView={currentView} 
+      <Sidebar
+        isOpen={sidebarOpen}
+        setIsOpen={setSidebarOpen}
+        currentView={currentView}
         setCurrentView={setCurrentView}
         currentUser={currentUser}
       />
@@ -459,7 +459,7 @@ function App() {
         {/* Header */}
         <header className="h-20 bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between px-6 lg:px-8 z-10 shrink-0 transition-colors duration-300">
           <div className="flex items-center gap-4">
-            <button 
+            <button
               onClick={() => setSidebarOpen(true)}
               className="lg:hidden p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg"
             >
@@ -467,10 +467,10 @@ function App() {
             </button>
             <div className="hidden sm:block">
               <h1 className="text-xl font-bold text-slate-800 dark:text-slate-100">
-                {currentView === 'dashboard' ? 'Access Control Dashboard' : 
-                 currentView === 'devices' ? 'Device Management' : 
-                 currentView === 'employees' ? 'Employee Directory' : 
-                 currentView === 'logs' ? 'Access Logs' : 
+                {currentView === 'dashboard' ? 'Access Control Dashboard' :
+                 currentView === 'devices' ? 'Device Management' :
+                 currentView === 'employees' ? 'Employee Directory' :
+                 currentView === 'logs' ? 'Access Logs' :
                  currentView === 'profile' ? 'My Profile' : 'System Configuration'}
               </h1>
               <p className="text-xs text-slate-500 dark:text-slate-400">Security Operations Center</p>
@@ -480,13 +480,13 @@ function App() {
           <div className="flex items-center gap-4">
             <div className="relative hidden md:block">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-              <input 
-                type="text" 
-                placeholder="Search..." 
+              <input
+                type="text"
+                placeholder="Search..."
                 className="pl-10 pr-4 py-2 rounded-lg border border-slate-200 dark:border-slate-600 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm w-72 bg-slate-50 dark:bg-slate-700 dark:text-white"
               />
             </div>
-            <button 
+            <button
               onClick={() => setIsAlertsModalOpen(true)}
               className="p-2 text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg relative transition-colors"
             >
@@ -507,19 +507,19 @@ function App() {
         </main>
       </div>
 
-      <CheckInToast 
-        data={lastCheckIn} 
-        onClose={() => setLastCheckIn(null)} 
+      <CheckInToast
+        data={lastCheckIn}
+        onClose={() => setLastCheckIn(null)}
       />
 
-      <AlertsModal 
-        isOpen={isAlertsModalOpen} 
-        onClose={() => setIsAlertsModalOpen(false)} 
+      <AlertsModal
+        isOpen={isAlertsModalOpen}
+        onClose={() => setIsAlertsModalOpen(false)}
         alerts={alerts}
         onClearAll={handleClearAlerts}
       />
 
-      <ImportFilterModal 
+      <ImportFilterModal
         isOpen={isImportModalOpen}
         onClose={() => setIsImportModalOpen(false)}
         onConfirm={handleImportConfirm}

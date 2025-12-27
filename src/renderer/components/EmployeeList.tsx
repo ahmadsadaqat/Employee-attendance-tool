@@ -1,13 +1,44 @@
-
 import React from 'react';
+import { useFrappeGetDocList } from 'frappe-react-sdk';
 import { Employee } from '../types';
-import { Clock, Calendar, Mail } from 'lucide-react';
+import { Clock, Calendar, Mail, Loader2 } from 'lucide-react';
 
-interface EmployeeListProps {
-  employees: Employee[];
-}
+export const EmployeeList: React.FC = () => {
+  const { data, isLoading, error } = useFrappeGetDocList('Employee', {
+    fields: ['name', 'employee_name', 'department', 'designation', 'status', 'image', 'default_shift']
+  });
 
-export const EmployeeList: React.FC<EmployeeListProps> = ({ employees }) => {
+  if (isLoading) {
+    return (
+      <div className="flex flex-col items-center justify-center p-12 text-slate-400">
+        <Loader2 className="animate-spin mb-2" size={32} />
+        <p>Loading directory...</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="p-8 text-center text-red-500 bg-red-50 rounded-xl border border-red-100 dark:bg-red-900/10 dark:border-red-900/30">
+        <p>Failed to load employees. Please check your connection.</p>
+        <p className="text-xs mt-1 opacity-70">{(error as any).message}</p>
+      </div>
+    );
+  }
+
+  const employees: Employee[] = (data || []).map((doc: any) => ({
+    id: doc.name,
+    employeeId: doc.name,
+    name: doc.employee_name,
+    role: doc.designation || 'N/A',
+    department: doc.department || 'Unassigned',
+    shiftName: doc.default_shift || 'Standard Shift',
+    shiftStart: '09:00', // Placeholder as actual times require another fetch
+    shiftEnd: '17:00',
+    avatar: doc.image ? (doc.image.startsWith('http') ? doc.image : `${(window as any).frappeBaseUrl}${doc.image}`) : `https://ui-avatars.com/api/?name=${encodeURIComponent(doc.employee_name)}&background=random`,
+    status: doc.status === 'Active' ? 'ACTIVE' : 'ON_LEAVE' // Simple mapping
+  }));
+
   return (
     <div className="space-y-6">
        <div>
@@ -26,49 +57,57 @@ export const EmployeeList: React.FC<EmployeeListProps> = ({ employees }) => {
              </tr>
            </thead>
            <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
-             {employees.map((emp) => (
-               <tr key={emp.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-700/50 transition-colors">
-                 <td className="px-6 py-4">
-                   <div className="flex items-center gap-4">
-                     <img src={emp.avatar} alt={emp.name} className="w-10 h-10 rounded-full object-cover border border-slate-200 dark:border-slate-600" />
-                     <div>
-                       <div className="font-bold text-slate-800 dark:text-slate-200">{emp.name}</div>
-                       <div className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1">
-                         <Mail size={12} /> {emp.employeeId}
-                       </div>
-                     </div>
-                   </div>
-                 </td>
-                 <td className="px-6 py-4">
-                   <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-600">
-                     {emp.department}
-                   </span>
-                   <div className="text-xs text-slate-400 mt-1">{emp.role}</div>
-                 </td>
-                 <td className="px-6 py-4">
-                   <div className="flex flex-col gap-1">
-                     <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300 font-medium">
-                       <Calendar size={14} className="text-teal-500" />
-                       {emp.shiftName}
-                     </div>
-                     <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 font-mono">
-                       <Clock size={12} />
-                       {emp.shiftStart} - {emp.shiftEnd}
-                     </div>
-                   </div>
-                 </td>
-                 <td className="px-6 py-4">
-                   <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold ${
-                     emp.status === 'ACTIVE' 
-                       ? 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-800' 
-                       : 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-600'
-                   }`}>
-                     <span className={`w-1.5 h-1.5 rounded-full ${emp.status === 'ACTIVE' ? 'bg-emerald-500' : 'bg-slate-400'}`}></span>
-                     {emp.status}
-                   </span>
+             {employees.length === 0 ? (
+               <tr>
+                 <td colSpan={4} className="px-6 py-8 text-center text-slate-500">
+                   No employees found
                  </td>
                </tr>
-             ))}
+             ) : (
+               employees.map((emp) => (
+                 <tr key={emp.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-700/50 transition-colors">
+                   <td className="px-6 py-4">
+                     <div className="flex items-center gap-4">
+                       <img src={emp.avatar} alt={emp.name} className="w-10 h-10 rounded-full object-cover border border-slate-200 dark:border-slate-600" />
+                       <div>
+                         <div className="font-bold text-slate-800 dark:text-slate-200">{emp.name}</div>
+                         <div className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1">
+                           <Mail size={12} /> {emp.employeeId}
+                         </div>
+                       </div>
+                     </div>
+                   </td>
+                   <td className="px-6 py-4">
+                     <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-600">
+                       {emp.department}
+                     </span>
+                     <div className="text-xs text-slate-400 mt-1">{emp.role}</div>
+                   </td>
+                   <td className="px-6 py-4">
+                     <div className="flex flex-col gap-1">
+                       <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300 font-medium">
+                         <Calendar size={14} className="text-teal-500" />
+                         {emp.shiftName}
+                       </div>
+                       <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 font-mono">
+                         <Clock size={12} />
+                         {emp.shiftStart} - {emp.shiftEnd}
+                       </div>
+                     </div>
+                   </td>
+                   <td className="px-6 py-4">
+                     <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold ${
+                       emp.status === 'ACTIVE'
+                         ? 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-800'
+                         : 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-600'
+                     }`}>
+                       <span className={`w-1.5 h-1.5 rounded-full ${emp.status === 'ACTIVE' ? 'bg-emerald-500' : 'bg-slate-400'}`}></span>
+                       {emp.status}
+                     </span>
+                   </td>
+                 </tr>
+               ))
+             )}
            </tbody>
          </table>
        </div>

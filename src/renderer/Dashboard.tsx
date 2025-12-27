@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
+import { useFrappeGetDocList } from 'frappe-react-sdk';
 import {
   RefreshCw,
   Menu,
@@ -173,13 +174,90 @@ export default function Dashboard({ currentUser: username, logout }: DashboardPr
     }
   };
 
-  // Initial Data Load
+  // Fetch Real Data from Frappe
+  const { data: frappeLogs, isLoading: frappeLoading, mutate: mutateLogs } = useFrappeGetDocList('Employee Checkin', {
+    fields: ['name', 'employee', 'employee_name', 'time', 'device_id', 'log_type'],
+    orderBy: { field: 'time', order: 'desc' },
+    limit: 500
+  });
+
+  // Simple state for chart data
+  const [realChartData, setRealChartData] = useState<{ time: string, count: number }[]>([]);
+
+  // Process Real Data
   useEffect(() => {
     loadDevices();
-    handleForceFetchDevices();
-  }, []);
 
+    if (frappeLogs) {
+      // 1. Map to CheckInRecord
+      const mappedRecords: CheckInRecord[] = frappeLogs.map((log: any) => ({
+        id: log.name,
+        employeeId: log.employee,
+        employeeName: log.employee_name,
+        department: 'N/A', // Not available in simple fetch, would need link fetching
+        timestamp: log.time,
+        device: log.device_id || 'Unknown Device',
+        location: 'Main Office', // Placeholder or derive from device
+        type: log.log_type === 'IN' ? 'CHECK_IN' : 'CHECK_OUT',
+        avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(log.employee_name)}&background=random`,
+        syncedToErp: true
+      }));
 
+      setCheckIns(mappedRecords);
+
+      // 2. Process for Traffic Chart (Today's data)
+      const today = new Date().toISOString().split('T')[0];
+      const todaysLogs = mappedRecords.filter(r => r.timestamp.startsWith(today));
+
+      // Initialize hours 06:00 to 18:00
+      const hoursMap = new Map<string, number>();
+      for (let i = 6; i <= 18; i++) {
+        const hourKey = `${i.toString().padStart(2, '0')}:00`;
+        hoursMap.set(hourKey, 0);
+      }
+
+      todaysLogs.forEach(r => {
+        const date = new Date(r.timestamp);
+        const hour = date.getHours();
+        if (hour >= 6 && hour <= 18) {
+          const key = `${hour.toString().padStart(2, '0')}:00`;
+          hoursMap.set(key, (hoursMap.get(key) || 0) + 1);
+        }
+      });
+
+      const processedChartData = Array.from(hoursMap.entries()).map(([time, count]) => ({
+        time,
+        count
+      }));
+
+      // Calculate cumulative if needed, or just raw count.
+      // The original chart looked cumulative (rising curve), but "Entry/Exit events per hour" usually means frequency.
+      // However, the original data was accumulated. Let's stick to frequency per hour for "Traffic Volume" as it's more standard,
+      // OR invalidating the previous cumulative logic if it was just random numbers.
+      // User asked for "Traffic Volume", let's do cumulative to match the "Curve" look if desired, but
+      // "Events per hour" usually implies a bar or line of frequency.
+      // Let's do Cumulative for the "Visual" match of the original screenshot if it was an Area chart.
+      // Actually, let's do simple count first. If it looks too jagged, we can accumulate.
+      // Looking at the screenshot, it's a smooth S-curve, implying Cumulative OR high volume.
+      // Let's do Cumulative Count for "Total Events Over Time".
+
+      let cumulative = 0;
+      const cumulativeChartData = processedChartData.map(d => {
+        cumulative += d.count;
+        return { ...d, count: cumulative };
+      });
+
+      setRealChartData(cumulativeChartData);
+    }
+  }, [frappeLogs]);
+
+  // Poll for updates every 30 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      mutateLogs();
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [mutateLogs]);
 
   const handleLogout = () => {
     logout();
@@ -196,17 +274,11 @@ export default function Dashboard({ currentUser: username, logout }: DashboardPr
     setAlerts(prev => [newAlert, ...prev]);
   };
 
-  const handleForceFetchDevices = () => {
+  const handleForceFetchDevices = async () => {
     setIsLoading(true);
-    // Simulate fetching from devices (Adding recent logs)
-    setTimeout(() => {
-      const newCheckIns = generateMockCheckIns(5); // Fetch last 5 logs from devices
-      const merged = [...newCheckIns, ...checkIns].sort((a,b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-
-      setCheckIns(merged);
-      setIsLoading(false);
-      addNotification("Successfully fetched logs from 4 connected devices", 'SUCCESS', 'Device Sync');
-    }, 1500);
+    await mutateLogs();
+    setIsLoading(false);
+    addNotification("Synced logs from ERP", 'SUCCESS', 'Device Sync');
   };
 
   const handleImportConfirm = (start: string, end: string, count: number) => {
@@ -274,7 +346,7 @@ export default function Dashboard({ currentUser: username, logout }: DashboardPr
   const renderContent = () => {
     switch(currentView) {
       case 'employees':
-        return <EmployeeList employees={mockEmployees} />;
+        return <EmployeeList />;
       case 'devices':
         return <DeviceManager devices={devices} onAddDevice={handleAddDevice} onDeleteDevice={handleDeleteDevice} />;
       case 'logs':
@@ -409,28 +481,28 @@ export default function Dashboard({ currentUser: username, logout }: DashboardPr
                 {/* Reduced height to 200px for minimal look */}
                 <div className="w-full h-[200px]">
                   <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={chartData}>
-                      <defs>
-                        <linearGradient id="colorCount" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#0d9488" stopOpacity={0.1}/>
-                          <stop offset="95%" stopColor="#0d9488" stopOpacity={0}/>
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={appSettings.darkMode ? "#334155" : "#f1f5f9"} />
-                      <XAxis dataKey="time" axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 12}} dy={10} />
-                      <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 12}} />
-                      <Tooltip
-                        contentStyle={{
-                          backgroundColor: appSettings.darkMode ? '#1e293b' : '#fff',
-                          borderRadius: '8px',
-                          border: appSettings.darkMode ? '1px solid #334155' : '1px solid #e2e8f0',
-                          boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
-                          color: appSettings.darkMode ? '#f8fafc' : '#1e293b'
-                        }}
-                        cursor={{ stroke: '#0d9488', strokeWidth: 1 }}
-                      />
-                      <Area type="monotone" dataKey="count" stroke="#0d9488" strokeWidth={3} fillOpacity={1} fill="url(#colorCount)" />
-                    </AreaChart>
+                      <AreaChart data={realChartData.length > 0 ? realChartData : chartData}>
+                        <defs>
+                          <linearGradient id="colorCount" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#0d9488" stopOpacity={0.1}/>
+                            <stop offset="95%" stopColor="#0d9488" stopOpacity={0}/>
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={appSettings.darkMode ? "#334155" : "#f1f5f9"} />
+                        <XAxis dataKey="time" axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 12}} dy={10} />
+                        <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 12}} />
+                        <Tooltip
+                          contentStyle={{
+                            backgroundColor: appSettings.darkMode ? '#1e293b' : '#fff',
+                            borderRadius: '8px',
+                            border: appSettings.darkMode ? '1px solid #334155' : '1px solid #e2e8f0',
+                            boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
+                            color: appSettings.darkMode ? '#f8fafc' : '#1e293b'
+                          }}
+                          cursor={{ stroke: '#0d9488', strokeWidth: 1 }}
+                        />
+                        <Area type="monotone" dataKey="count" stroke="#0d9488" strokeWidth={3} fillOpacity={1} fill="url(#colorCount)" />
+                      </AreaChart>
                   </ResponsiveContainer>
                 </div>
               </div>
