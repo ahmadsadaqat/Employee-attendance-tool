@@ -8,17 +8,21 @@
   "author": "",
   "license": "MIT",
   "scripts": {
-    "dev": "npm run start",
-    "start": "concurrently -k \"node scripts/build-electron.mjs --watch\" \"vite\" \"wait-on tcp:5173 && cross-env VITE_DEV_SERVER=true electron .\"",
+    "dev": "concurrently -k \"node scripts/build-electron.mjs --watch\" \"vite\" \"wait-on tcp:5173 && cross-env VITE_DEV_SERVER=true electron .\"",
+    "start": "electron-forge start",
     "build": "node scripts/build-electron.mjs && vite build && electron-builder",
     "build:win": "node scripts/build-electron.mjs && vite build && electron-builder --win",
     "build:app": "vite build",
     "lint": "echo 'no linter configured'",
-    "postinstall": "electron-builder install-app-deps"
+    "postinstall": "electron-builder install-app-deps",
+    "package": "electron-forge package",
+    "make": "electron-forge make",
+    "make:win": "electron-forge make --platform=win32"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.90.12",
     "better-sqlite3": "^11.10.0",
+    "electron-squirrel-startup": "^1.0.1",
     "electron-store": "^8.1.0",
     "frappe-react-sdk": "^1.12.0",
     "is-online": "^12.0.1",
@@ -30,6 +34,14 @@
     "swr": "^2.3.6"
   },
   "devDependencies": {
+    "@electron-forge/cli": "^7.10.2",
+    "@electron-forge/maker-deb": "^7.10.2",
+    "@electron-forge/maker-rpm": "^7.10.2",
+    "@electron-forge/maker-squirrel": "^7.10.2",
+    "@electron-forge/maker-zip": "^7.10.2",
+    "@electron-forge/plugin-auto-unpack-natives": "^7.10.2",
+    "@electron-forge/plugin-fuses": "^7.10.2",
+    "@electron/fuses": "^1.8.0",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^24.5.2",
     "@types/react": "^19.1.13",
@@ -39,7 +51,6 @@
     "concurrently": "^9.2.1",
     "cross-env": "^7.0.3",
     "electron": "^32.3.3",
-    "electron-builder": "^25.1.8",
     "esbuild": "^0.25.10",
     "esbuild-node-externals": "^1.18.0",
     "postcss": "^8.5.6",

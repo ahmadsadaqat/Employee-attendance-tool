@@ -14,6 +14,30 @@ import { Logo } from './Logo'
 import { Mail, Lock, ArrowRight, AlertCircle, Globe } from 'lucide-react'
 import Dashboard from './Dashboard'
 
+const originalFetch = window.fetch;
+window.fetch = async (input, init) => {
+  init = init || {};
+  init.credentials = 'include';
+
+  // If we are hitting the proxy, tell it where to go
+  if (typeof input === 'string' && input.startsWith('/frappe')) {
+      const target = (window as any).frappeRealUrl;
+      const explicitHeader = (init.headers as any)?.['X-Proxy-Target'];
+
+      if (target && !explicitHeader) {
+          if (!init.headers) init.headers = {};
+          if (init.headers instanceof Headers) {
+              init.headers.set('X-Proxy-Target', target);
+          } else if (Array.isArray(init.headers)) {
+              init.headers.push(['X-Proxy-Target', target]);
+          } else {
+              (init.headers as any)['X-Proxy-Target'] = target;
+          }
+      }
+  }
+  return originalFetch(input, init);
+};
+
 type Stats = { total: number; unsynced: number; today: number }
 
 function App({ onUrlChange }: { onUrlChange: (url: string) => void }) {
@@ -294,6 +318,9 @@ function AppWrapper() {
         const creds = await window.api?.getCredentials?.()
         if (creds?.baseUrl) {
           setFrappeUrl(creds.baseUrl)
+          // Set synchronous global for fetch patch to see immediately
+          ;(window as any).frappeRealUrl = creds.baseUrl
+          console.log('AppWrapper: Set global frappeRealUrl to', creds.baseUrl)
         }
       } catch (error) {
         console.error('Failed to load saved URL:', error)
@@ -319,7 +346,8 @@ function AppWrapper() {
   const providerUrl = import.meta.env.DEV ? '/frappe' : frappeUrl
   useEffect(() => {
     ;(window as any).frappeBaseUrl = providerUrl
-  }, [providerUrl])
+    ;(window as any).frappeRealUrl = frappeUrl // Store real URL for the proxy header injection
+  }, [providerUrl, frappeUrl])
 
 const queryClient = new QueryClient()
 

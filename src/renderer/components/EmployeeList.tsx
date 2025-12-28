@@ -1,14 +1,14 @@
 import React from 'react';
-import { useFrappeGetDocList } from 'frappe-react-sdk';
+import { useFrappeDocList } from '../hooks/useData';
 import { Employee } from '../types';
 import { Clock, Calendar, Mail, Loader2 } from 'lucide-react';
 
 export const EmployeeList: React.FC = () => {
-  const { data: employeesData, isLoading: employeesLoading, error: employeesError } = useFrappeGetDocList('Employee', {
+  const { data: employeesData, isLoading: employeesLoading, error: employeesError } = useFrappeDocList('Employee', {
     fields: ['name', 'employee_name', 'department', 'designation', 'status', 'image', 'default_shift']
   });
 
-  const { data: shiftsData, isLoading: shiftsLoading } = useFrappeGetDocList('Shift Type', {
+  const { data: shiftsData, isLoading: shiftsLoading } = useFrappeDocList('Shift Type', {
     fields: ['name', 'start_time', 'end_time']
   });
 

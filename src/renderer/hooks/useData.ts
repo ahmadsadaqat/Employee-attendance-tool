@@ -19,7 +19,7 @@ const fetchDocList = async (doctype: string, filters?: any, fields?: string[], o
     }
 
     const params = new URLSearchParams({
-        doctype,
+        // doctype is already in the URL path, do not add it here as it causes "multiple values" error
         fields: JSON.stringify(fields || ["*"]),
         filters: JSON.stringify(filters || []),
         limit_start: timestamp(limit_start || 0),
