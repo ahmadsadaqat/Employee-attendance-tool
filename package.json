@@ -51,7 +51,12 @@
   "appId": "com.nexo.employees",
   "icon": "build/icon.png",
   "files": [
-      "**/*"
+      "**/*",
+      "!**/*.ts",
+      "!**/*.tsx",
+      "!src/**",
+      "dist/**/*",
+      "dist-electron/**/*"
   ],
   "asarUnpack": [
     "**/*.node"
