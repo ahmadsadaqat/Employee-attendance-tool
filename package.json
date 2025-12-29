@@ -12,7 +12,8 @@
   "build": "node scripts/build-electron.mjs && vite build && electron-builder",
   "build:win": "node scripts/build-electron.mjs && vite build && electron-builder --win",
   "build:app": "vite build",
-  "lint": "echo 'no linter configured'"
+  "lint": "echo 'no linter configured'",
+  "postinstall": "electron-builder install-app-deps"
 },
   "dependencies": {
     "@tanstack/react-query": "^5.90.12",

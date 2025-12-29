@@ -1,17 +1,48 @@
 import { app, BrowserWindow, ipcMain, safeStorage, session, net } from 'electron'
 import path from 'node:path'
-import { Database } from '../db/sqlite'
-import { ZKClient } from './zkclient'
-import { FrappeApp } from 'frappe-js-sdk'
 import Store from 'electron-store'
+import { FrappeApp } from 'frappe-js-sdk'
 
+// -------------------- GLOBAL SAFETY & CONFIG --------------------
+
+// Disable hardware acceleration to prevent blank screens/crashes on Windows
+app.disableHardwareAcceleration()
+
+process.on('uncaughtException', (err) => {
+  console.error('UNCAUGHT EXCEPTION:', err)
+})
+
+process.on('unhandledRejection', (err) => {
+  console.error('UNHANDLED PROMISE:', err)
+})
+
+let win: BrowserWindow | null = null
 const store = new Store()
 
 ipcMain.on('log', (_event, level, ...args) => {
   console.log(`Renderer [${level}]:`, ...args)
 })
 
-let win: BrowserWindow | null
+// -------------------- HELPERS --------------------
+
+// Helper to get credentials
+async function getCredentials() {
+  try {
+    const encrypted = store.get('erp-credentials') as string
+    if (!encrypted) return null
+    if (safeStorage.isEncryptionAvailable()) {
+      const buffer = Buffer.from(encrypted, 'hex')
+      const decrypted = safeStorage.decryptString(buffer)
+      return JSON.parse(decrypted)
+    } else {
+      // Fallback for dev envs where safeStorage might not be available
+      return JSON.parse(encrypted)
+    }
+  } catch (e) {
+    console.error('Failed to retrieve credentials:', e)
+    return null
+  }
+}
 
 // Helper to inject auth headers into all requests to the ERP
 function setupAuthInjection(baseUrl: string, auth: { mode?: string, sid?: string, apiKey?: string, apiSecret?: string } | null) {
@@ -51,12 +82,17 @@ function createWindow() {
   win = new BrowserWindow({
     width: 1100,
     height: 720,
+    show: false, // Don't show until ready
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
       webSecurity: false // Disable CORS to allow direct requests to ERP
     },
+  })
+
+  win.once('ready-to-show', () => {
+    win?.show()
   })
 
   // Restore session if available
@@ -70,53 +106,41 @@ function createWindow() {
     win.loadURL('http://localhost:5173')
     win.webContents.openDevTools()
   } else {
-    const prodIndex = path.join(process.resourcesPath, 'dist', 'index.html')
-    win.loadFile(prodIndex)
+    // Correct production path
+    win.loadFile(path.join(__dirname, '../dist/index.html'))
   }
 }
 
+// -------------------- APP READY & IPC --------------------
+
 app.whenReady().then(async () => {
-  console.log('Main process: App ready, initializing...')
+  console.log('Main process ready')
+
+  // Import native modules ONLY after app is ready to verify they don't break the build/start
+  const { Database } = await import('../db/sqlite')
+  const { ZKClient } = await import('./zkclient')
+
   await Database.init()
   createWindow()
+
   console.log('Main process: Window created, IPC handlers registered')
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
-})
 
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit()
-})
+  // -------------------- IPC HANDLERS (MOVED INSIDE) --------------------
 
-// IPC Handlers
-console.log('Main process: Registering IPC handlers...')
+  ipcMain.handle('db:get-stats', async () => {
+    return Database.getStats()
+  })
 
-ipcMain.handle('db:get-stats', async () => {
-  return Database.getStats()
-})
-
-ipcMain.handle(
-  'device:test',
-  async (_e, { ip, port }: { ip: string; port: number }) => {
+  ipcMain.handle('device:test', async (_e, { ip, port }: { ip: string; port: number }) => {
     return ZKClient.testConnection(ip, port)
-  }
-)
+  })
 
-// Device CRUD
-ipcMain.handle(
-  'device:add',
-  async (
-    _e,
-    d: {
-      name: string
-      ip: string
-      port: number
-      commKey?: string
-      useUdp?: boolean
-    }
-  ) => {
+  // Device CRUD
+  ipcMain.handle('device:add', async (_e, d: { name: string, ip: string, port: number, commKey?: string, useUdp?: boolean }) => {
     const id = Database.ensureDevice(
       d.name,
       d.ip,
@@ -125,38 +149,18 @@ ipcMain.handle(
       d.useUdp ? 1 : 0
     )
     return { id }
-  }
-)
+  })
 
-ipcMain.handle('device:list', async () => {
-  return Database.listDevices()
-})
+  ipcMain.handle('device:list', async () => {
+    return Database.listDevices()
+  })
 
-ipcMain.handle('device:remove', async (_e, id: number) => {
-  Database.deleteDevice(id)
-})
+  ipcMain.handle('device:remove', async (_e, id: number) => {
+    Database.deleteDevice(id)
+  })
 
-// ERP-related IPC removed; ERP is now accessed directly from the renderer using frappe-react-sdk
-
-// Fetch logs from biometric device and store in DB
-ipcMain.handle(
-  'device:fetchLogs',
-  async (
-    _e,
-    {
-      ip,
-      port = 4370,
-      name,
-      commKey,
-      useUdp,
-    }: {
-      ip: string
-      port?: number
-      name?: string
-      commKey?: string
-      useUdp?: boolean
-    }
-  ) => {
+  // Fetch logs from biometric device
+  ipcMain.handle('device:fetchLogs', async (_e, { ip, port = 4370, name, commKey, useUdp }: any) => {
     try {
       const deviceName = name || `Device ${ip}`
       const deviceId = Database.ensureDevice(
@@ -183,126 +187,91 @@ ipcMain.handle(
       return { imported }
     } catch (e: any) {
       const errObj = e?.err || e
-      const msg =
-        (typeof errObj === 'string' && errObj) ||
-        errObj?.message ||
-        errObj?.toString?.() ||
-        'Unknown device error'
+      const msg = (typeof errObj === 'string' && errObj) || errObj?.message || errObj?.toString?.() || 'Unknown device error'
       console.error("Error occurred in handler for 'device:fetchLogs':", e)
       return { imported: 0, error: msg }
     }
-  }
-)
+  })
 
-// List recent attendance rows
-ipcMain.handle(
-  'attendance:list',
-  async (_e, { limit = 100 } = { limit: 100 }) => {
+  // Attendance
+  ipcMain.handle('attendance:list', async (_e, { limit = 100 } = { limit: 100 }) => {
     return Database.listAttendance(limit)
-  }
-)
+  })
 
-ipcMain.handle(
-  'attendance:listByDevice',
-  async (
-    _e,
-    { deviceId, limit = 100 }: { deviceId: number; limit?: number }
-  ) => {
+  ipcMain.handle('attendance:listByDevice', async (_e, { deviceId, limit = 100 }: { deviceId: number; limit?: number }) => {
     return Database.listAttendanceByDevice(deviceId, limit)
-  }
-)
+  })
 
-// Expose unsynced attendance for renderer-side syncing
-ipcMain.handle('attendance:unsynced', async () => {
-  return Database.getUnsynced()
-})
+  ipcMain.handle('attendance:unsynced', async () => {
+    return Database.getUnsynced()
+  })
 
-// Allow renderer to mark rows as synced after successful ERP push
-ipcMain.handle('attendance:markSynced', async (_e, ids: number[]) => {
-  Database.markSynced(ids)
-  return { ok: true, updated: ids?.length || 0 }
-})
+  ipcMain.handle('attendance:markSynced', async (_e, ids: number[]) => {
+    Database.markSynced(ids)
+    return { ok: true, updated: ids?.length || 0 }
+  })
 
-// Helper to get credentials
-async function getCredentials() {
-  try {
-    const encrypted = store.get('erp-credentials') as string
-    if (!encrypted) return null
-    if (safeStorage.isEncryptionAvailable()) {
-      const buffer = Buffer.from(encrypted, 'hex')
-      const decrypted = safeStorage.decryptString(buffer)
-      return JSON.parse(decrypted)
-    } else {
-      // Fallback for dev envs where safeStorage might not be available
-      return JSON.parse(encrypted)
-    }
-  } catch (e) {
-    console.error('Failed to retrieve credentials:', e)
-    return null
-  }
-}
+  // Sync Logic
+  ipcMain.handle('sync:run', async () => {
+    const unsynced = Database.getUnsynced()
+    if (!unsynced.length) return { synced: 0, errors: [] }
 
-ipcMain.handle('sync:run', async () => {
-  const unsynced = Database.getUnsynced()
-  if (!unsynced.length) return { synced: 0, errors: [] }
+    const creds = await getCredentials()
+    if (!creds) return { synced: 0, errors: ['No ERP credentials stored'] }
 
-  const creds = await getCredentials()
-  if (!creds) return { synced: 0, errors: ['No ERP credentials stored'] }
+    const { baseUrl, auth } = creds
 
-  const { baseUrl, auth } = creds
-
-  // Initialize Frappe app with appropriate auth
-  let app: FrappeApp
-  if (auth?.mode === 'token') {
-    app = new FrappeApp(baseUrl, {
-      useToken: true,
-      token: () => `${auth.apiKey}:${auth.apiSecret}`,
-      type: 'token',
-    })
-  } else {
-    app = new FrappeApp(baseUrl)
-    try {
-      await app.auth().loginWithUsernamePassword({
-        username: auth.username,
-        password: auth.password,
+    // Initialize Frappe app with appropriate auth
+    let app: FrappeApp
+    if (auth?.mode === 'token') {
+      app = new FrappeApp(baseUrl, {
+        useToken: true,
+        token: () => `${auth.apiKey}:${auth.apiSecret}`,
+        type: 'token',
       })
-    } catch (e: any) {
-      const message =
-        (e && e.message) ||
-        (typeof e === 'string' ? e : 'Failed to login to ERP')
-      return { synced: 0, errors: [`ERP login failed: ${message}`] }
-    }
-  }
-
-  const results: { ok: boolean; error?: string }[] = []
-  for (const u of unsynced) {
-    try {
-      const payload = {
-        employee: u.employee_id,
-        attendance_date: u.timestamp.split('T')[0],
-        in_time: u.status === 'IN' ? u.timestamp : undefined,
-        out_time: u.status === 'OUT' ? u.timestamp : undefined,
-        status: 'Present',
+    } else {
+      app = new FrappeApp(baseUrl)
+      try {
+        await app.auth().loginWithUsernamePassword({
+          username: auth.username,
+          password: auth.password,
+        })
+      } catch (e: any) {
+        const message = (e && e.message) || (typeof e === 'string' ? e : 'Failed to login to ERP')
+        return { synced: 0, errors: [`ERP login failed: ${message}`] }
       }
-      await app.db().createDoc('Attendance', payload)
-      results.push({ ok: true })
-    } catch (e: any) {
-      results.push({ ok: false, error: e?.message || 'Unknown error' })
     }
-  }
 
-  const syncedIds = results.filter((r) => r.ok).map((_, i) => unsynced[i].id!)
-  Database.markSynced(syncedIds)
+    const results: { ok: boolean; error?: string }[] = []
+    for (const u of unsynced) {
+      try {
+        const payload = {
+          employee: u.employee_id,
+          attendance_date: u.timestamp.split('T')[0],
+          in_time: u.status === 'IN' ? u.timestamp : undefined,
+          out_time: u.status === 'OUT' ? u.timestamp : undefined,
+          status: 'Present',
+        }
+        await app.db().createDoc('Attendance', payload)
+        results.push({ ok: true })
+      } catch (e: any) {
+        results.push({ ok: false, error: e?.message || 'Unknown error' })
+      }
+    }
 
-  return {
-    synced: syncedIds.length,
-    errors: results.filter((r) => !r.ok).map((r) => r.error as string),
-  }
-})
+    const syncedIds = results.filter((r) => r.ok).map((_, i) => unsynced[i].id!)
+    Database.markSynced(syncedIds)
 
-ipcMain.handle(
-  'credentials:set',
-  async (_e, { baseUrl, auth }: { baseUrl: string; auth: any }) => {
+    return {
+      synced: syncedIds.length,
+      errors: results.filter((r) => !r.ok).map((r) => r.error as string),
+    }
+  })
+
+  // Auth & Credentials Handlers (could be outside, but safer here if we wanted consistent pattern, though they don't depend on DB)
+  // Moving them here for consistency as user requested "IPC HANDLERS" inside.
+
+  ipcMain.handle('credentials:set', async (_e, { baseUrl, auth }: { baseUrl: string; auth: any }) => {
     console.log('Main process: Setting credentials for', baseUrl)
     try {
       const data = JSON.stringify({ baseUrl, auth })
@@ -318,195 +287,163 @@ ipcMain.handle(
       console.error('Main process: Failed to save credentials:', e)
       throw e
     }
-  }
-)
-
-ipcMain.handle('auth:login', async (_e, { url, username, password }) => {
-  console.log('Main process: Attempting login to', url)
-
-  return new Promise((resolve, reject) => {
-    // Ensure no trailing slash for clean concatenation and remove excessive whitespace
-    const cleanUrl = url.trim().replace(/\/$/, '')
-    const targetUrl = `${cleanUrl}/api/method/login`
-    console.log('Main process: Target URL:', targetUrl)
-
-    // Robust request construction using parsed URL components
-    const request = net.request({
-      method: 'POST',
-      url: targetUrl
-    })
-
-    request.setHeader('Content-Type', 'application/json')
-    request.setHeader('Origin', cleanUrl)
-
-    request.on('response', (response) => {
-      console.log(`Main process: Login response status: ${response.statusCode}`)
-
-      if (response.statusCode !== 200) {
-        reject(new Error(`Login failed with status ${response.statusCode}`))
-        return
-      }
-
-      // Capture cookies
-      const cookies = response.headers['set-cookie']
-      let sid = ''
-      if (cookies) {
-        // Handle array or string
-        const cookieList = Array.isArray(cookies) ? cookies : [cookies]
-        cookieList.forEach(c => {
-          if (c.startsWith('sid=')) {
-            sid = c.split(';')[0].split('=')[1]
-          }
-        })
-      }
-
-      if (!sid) {
-        reject(new Error('Login successful but no session ID (sid) found'))
-        return
-      }
-
-      console.log('Main process: Captured Session ID (sid)')
-
-      // Setup injection immediately
-      const authData = {
-          username,
-          password,
-          sid,
-          mode: 'session'
-      }
-      setupAuthInjection(url, authData)
-
-      // Collect body
-      let body = ''
-      response.on('data', chunk => body += chunk)
-      response.on('end', async () => {
-        try {
-          const json = JSON.parse(body)
-
-          const data = JSON.stringify({ baseUrl: url, auth: authData })
-
-          if (safeStorage.isEncryptionAvailable()) {
-              const encrypted = safeStorage.encryptString(data)
-              store.set('erp-credentials', encrypted.toString('hex'))
-          } else {
-              store.set('erp-credentials', data)
-          }
-
-          resolve({ ...json, sid })
-        } catch (e) {
-          reject(e)
-        }
-      })
-    })
-
-    request.on('error', (error) => {
-      console.error('Main process: Login request error:', error)
-      reject(error)
-    })
-
-    request.write(JSON.stringify({ usr: username, pwd: password }))
-    request.end()
   })
-})
 
-ipcMain.handle('auth:login-token', async (_e, { url, apiKey, apiSecret }) => {
-    console.log('Main process: Attempting token login to', url)
+  ipcMain.handle('credentials:get', async () => {
+    console.log('Main process: Getting credentials...')
+    return await getCredentials()
+  })
 
-    // Ensure clean URL
-    const cleanUrl = url.trim().replace(/\/$/, '')
-    const targetUrl = `${cleanUrl}/api/method/frappe.auth.get_logged_user`
+  ipcMain.handle('auth:login', async (_e, { url, username, password }) => {
+    console.log('Main process: Attempting login to', url)
 
-    // Verify credentials by making a request
     return new Promise((resolve, reject) => {
-        const request = net.request({
-            method: 'GET',
-            url: targetUrl
-        })
+      // Ensure no trailing slash
+      const cleanUrl = url.trim().replace(/\/$/, '')
+      const targetUrl = `${cleanUrl}/api/method/login`
+      console.log('Main process: Target URL:', targetUrl)
 
-        request.setHeader('Authorization', `token ${apiKey}:${apiSecret}`)
-        request.setHeader('Origin', cleanUrl)
+      const request = net.request({ method: 'POST', url: targetUrl })
+      request.setHeader('Content-Type', 'application/json')
+      request.setHeader('Origin', cleanUrl)
 
-        request.on('response', (response) => {
-             if (response.statusCode !== 200) {
-                 reject(new Error(`Token verification failed with status ${response.statusCode}`))
-                 return
-             }
+      request.on('response', (response) => {
+        console.log(`Main process: Login response status: ${response.statusCode}`)
 
-             let body = ''
-             response.on('data', chunk => body += chunk)
-             response.on('end', () => {
-                 try {
-                     const json = JSON.parse(body)
-
-                     // If we are here, token is valid
-                     const authData = {
-                         apiKey,
-                         apiSecret,
-                         mode: 'token',
-                         username: json.message // Usually returns logic user name
-                     }
-
-                     // Setup injection for subsequent requests
-                     setupAuthInjection(cleanUrl, authData)
-
-                     // Save credentials
-                     const data = JSON.stringify({ baseUrl: cleanUrl, auth: authData })
-                     if (safeStorage.isEncryptionAvailable()) {
-                        const encrypted = safeStorage.encryptString(data)
-                        store.set('erp-credentials', encrypted.toString('hex'))
-                    } else {
-                        store.set('erp-credentials', data)
-                    }
-
-                    resolve(json)
-                 } catch (e) {
-                     reject(e)
-                 }
-             })
-        })
-
-        request.on('error', (e) => reject(e))
-        request.end()
-    })
-})
-
-ipcMain.handle('auth:logout', async () => {
-    console.log('Main process: Logging out...')
-    try {
-        // 1. Clear stored credentials
-        store.delete('erp-credentials')
-
-        // 2. Clear cookies
-        const cookies = await session.defaultSession.cookies.get({})
-        for (const cookie of cookies) {
-            let url = ''
-            // get prefix, like https://...
-            url = (cookie.secure ? 'https://' : 'http://') + cookie.domain + cookie.path
-            await session.defaultSession.cookies.remove(url, cookie.name)
+        if (response.statusCode !== 200) {
+          reject(new Error(`Login failed with status ${response.statusCode}`))
+          return
         }
 
-        // 3. Reset auth injection
-        setupAuthInjection('', null)
+        // Capture cookies
+        const cookies = response.headers['set-cookie']
+        let sid = ''
+        if (cookies) {
+          const cookieList = Array.isArray(cookies) ? cookies : [cookies]
+          cookieList.forEach(c => {
+            if (c.startsWith('sid=')) {
+              sid = c.split(';')[0].split('=')[1]
+            }
+          })
+        }
 
-        console.log('Main process: Logout successful')
-        return true
-    } catch (e) {
-         console.error('Main process: Logout failed', e)
-         return false
+        if (!sid) {
+          reject(new Error('Login successful but no session ID (sid) found'))
+          return
+        }
+
+        console.log('Main process: Captured Session ID (sid)')
+
+        const authData = { username, password, sid, mode: 'session' }
+        setupAuthInjection(url, authData)
+
+        let body = ''
+        response.on('data', chunk => body += chunk)
+        response.on('end', async () => {
+          try {
+            const json = JSON.parse(body)
+            const data = JSON.stringify({ baseUrl: url, auth: authData })
+
+            if (safeStorage.isEncryptionAvailable()) {
+                const encrypted = safeStorage.encryptString(data)
+                store.set('erp-credentials', encrypted.toString('hex'))
+            } else {
+                store.set('erp-credentials', data)
+            }
+
+            resolve({ ...json, sid })
+          } catch (e) {
+            reject(e)
+          }
+        })
+      })
+
+      request.on('error', (error) => {
+        console.error('Main process: Login request error:', error)
+        reject(error)
+      })
+
+      request.write(JSON.stringify({ usr: username, pwd: password }))
+      request.end()
+    })
+  })
+
+  ipcMain.handle('auth:login-token', async (_e, { url, apiKey, apiSecret }) => {
+      console.log('Main process: Attempting token login to', url)
+
+      const cleanUrl = url.trim().replace(/\/$/, '')
+      const targetUrl = `${cleanUrl}/api/method/frappe.auth.get_logged_user`
+
+      return new Promise((resolve, reject) => {
+          const request = net.request({ method: 'GET', url: targetUrl })
+          request.setHeader('Authorization', `token ${apiKey}:${apiSecret}`)
+          request.setHeader('Origin', cleanUrl)
+
+          request.on('response', (response) => {
+               if (response.statusCode !== 200) {
+                   reject(new Error(`Token verification failed with status ${response.statusCode}`))
+                   return
+               }
+
+               let body = ''
+               response.on('data', chunk => body += chunk)
+               response.on('end', () => {
+                   try {
+                       const json = JSON.parse(body)
+                       const authData = { apiKey, apiSecret, mode: 'token', username: json.message }
+
+                       setupAuthInjection(cleanUrl, authData)
+
+                       const data = JSON.stringify({ baseUrl: cleanUrl, auth: authData })
+                       if (safeStorage.isEncryptionAvailable()) {
+                          const encrypted = safeStorage.encryptString(data)
+                          store.set('erp-credentials', encrypted.toString('hex'))
+                      } else {
+                          store.set('erp-credentials', data)
+                      }
+
+                      resolve(json)
+                   } catch (e) {
+                       reject(e)
+                   }
+               })
+          })
+
+          request.on('error', (e) => reject(e))
+          request.end()
+      })
+  })
+
+  ipcMain.handle('auth:logout', async () => {
+      console.log('Main process: Logging out...')
+      try {
+          store.delete('erp-credentials')
+          const cookies = await session.defaultSession.cookies.get({})
+          for (const cookie of cookies) {
+              let url = (cookie.secure ? 'https://' : 'http://') + cookie.domain + cookie.path
+              await session.defaultSession.cookies.remove(url, cookie.name)
+          }
+          setupAuthInjection('', null)
+          console.log('Main process: Logout successful')
+          return true
+      } catch (e) {
+           console.error('Main process: Logout failed', e)
+           return false
+      }
+  })
+
+  ipcMain.handle('network:status', async () => {
+    try {
+      const { default: isOnline } = await import('is-online')
+      return await isOnline({ timeout: 2000 })
+    } catch (error) {
+      console.error('Main process: Failed to determine network status:', error)
+      return false
     }
-})
+  })
 
-ipcMain.handle('credentials:get', async () => {
-  console.log('Main process: Getting credentials...')
-  return await getCredentials()
-})
+}) // End of app.whenReady
 
-ipcMain.handle('network:status', async () => {
-  try {
-    const { default: isOnline } = await import('is-online')
-    return await isOnline({ timeout: 2000 })
-  } catch (error) {
-    console.error('Main process: Failed to determine network status:', error)
-    return false
-  }
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') app.quit()
 })
