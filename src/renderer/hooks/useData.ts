@@ -13,10 +13,10 @@ const fetchDocList = async (doctype: string, filters?: any, fields?: string[], o
         'Content-Type': 'application/json',
     };
 
-    // Inject proxy header if needed (for browser dev)
-    if ((window as any).frappeRealUrl) {
-        headers['X-Proxy-Target'] = (window as any).frappeRealUrl;
-    }
+    // Inject proxy header if needed (for browser dev) - REMOVED: Main Process handles auth injection now
+    // if ((window as any).frappeRealUrl) {
+    //     headers['X-Proxy-Target'] = (window as any).frappeRealUrl;
+    // }
 
     const params = new URLSearchParams({
         // doctype is already in the URL path, do not add it here as it causes "multiple values" error

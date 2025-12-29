@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, safeStorage } from 'electron'
+import { app, BrowserWindow, ipcMain, safeStorage, session, net } from 'electron'
 import path from 'node:path'
 import { Database } from '../db/sqlite'
 import { ZKClient } from './zkclient'
@@ -7,7 +7,45 @@ import Store from 'electron-store'
 
 const store = new Store()
 
+ipcMain.on('log', (_event, level, ...args) => {
+  console.log(`Renderer [${level}]:`, ...args)
+})
+
 let win: BrowserWindow | null
+
+// Helper to inject auth headers into all requests to the ERP
+function setupAuthInjection(baseUrl: string, auth: { mode?: string, sid?: string, apiKey?: string, apiSecret?: string } | null) {
+  // If no auth provided, strictly exit (listener is already effectively cleared/overwritten below if we use the same filter context,
+  // but to be safe lets explicitly clear specifically for the old URL if possible, or just use a global tracker).
+  // "Passing null as listener removes validity."
+
+  if (!baseUrl || !auth) {
+      console.log('Main process: Clearing auth injection')
+      session.defaultSession.webRequest.onBeforeSendHeaders({ urls: ['*://*/*'] }, null)
+      return
+  }
+
+  const filter = { urls: [`${baseUrl}/*`] }
+
+  session.defaultSession.webRequest.onBeforeSendHeaders(filter, (details, callback) => {
+    if (auth.mode === 'token' && auth.apiKey && auth.apiSecret) {
+        // Inject Token Authorization header
+        details.requestHeaders['Authorization'] = `token ${auth.apiKey}:${auth.apiSecret}`
+    } else if (auth.sid) {
+        // Inject the session cookie as if it were a token
+        details.requestHeaders['Cookie'] = `sid=${auth.sid}; system_user=yes; user_id=Administrator`
+    }
+
+    // Only set Origin if needed, avoid setting Host as it's handled by the network stack
+    try {
+        details.requestHeaders['Origin'] = baseUrl
+    } catch (e) {}
+
+    // console.log(`Main process: Injecting auth (${auth.mode || 'session'}) for ${details.url}`)
+    callback({ requestHeaders: details.requestHeaders })
+  })
+  console.log(`Main process: Auth injection enabled for ${baseUrl} [Mode: ${auth.mode || 'session'}]`)
+}
 
 function createWindow() {
   win = new BrowserWindow({
@@ -17,7 +55,15 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
+      webSecurity: false // Disable CORS to allow direct requests to ERP
     },
+  })
+
+  // Restore session if available
+  getCredentials().then(creds => {
+      if (creds?.baseUrl && creds?.auth) {
+          setupAuthInjection(creds.baseUrl, creds.auth)
+      }
   })
 
   if (process.env.VITE_DEV_SERVER) {
@@ -274,6 +320,181 @@ ipcMain.handle(
     }
   }
 )
+
+ipcMain.handle('auth:login', async (_e, { url, username, password }) => {
+  console.log('Main process: Attempting login to', url)
+
+  return new Promise((resolve, reject) => {
+    // Ensure no trailing slash for clean concatenation and remove excessive whitespace
+    const cleanUrl = url.trim().replace(/\/$/, '')
+    const targetUrl = `${cleanUrl}/api/method/login`
+    console.log('Main process: Target URL:', targetUrl)
+
+    // Robust request construction using parsed URL components
+    const request = net.request({
+      method: 'POST',
+      url: targetUrl
+    })
+
+    request.setHeader('Content-Type', 'application/json')
+    request.setHeader('Origin', cleanUrl)
+
+    request.on('response', (response) => {
+      console.log(`Main process: Login response status: ${response.statusCode}`)
+
+      if (response.statusCode !== 200) {
+        reject(new Error(`Login failed with status ${response.statusCode}`))
+        return
+      }
+
+      // Capture cookies
+      const cookies = response.headers['set-cookie']
+      let sid = ''
+      if (cookies) {
+        // Handle array or string
+        const cookieList = Array.isArray(cookies) ? cookies : [cookies]
+        cookieList.forEach(c => {
+          if (c.startsWith('sid=')) {
+            sid = c.split(';')[0].split('=')[1]
+          }
+        })
+      }
+
+      if (!sid) {
+        reject(new Error('Login successful but no session ID (sid) found'))
+        return
+      }
+
+      console.log('Main process: Captured Session ID (sid)')
+
+      // Setup injection immediately
+      const authData = {
+          username,
+          password,
+          sid,
+          mode: 'session'
+      }
+      setupAuthInjection(url, authData)
+
+      // Collect body
+      let body = ''
+      response.on('data', chunk => body += chunk)
+      response.on('end', async () => {
+        try {
+          const json = JSON.parse(body)
+
+          const data = JSON.stringify({ baseUrl: url, auth: authData })
+
+          if (safeStorage.isEncryptionAvailable()) {
+              const encrypted = safeStorage.encryptString(data)
+              store.set('erp-credentials', encrypted.toString('hex'))
+          } else {
+              store.set('erp-credentials', data)
+          }
+
+          resolve({ ...json, sid })
+        } catch (e) {
+          reject(e)
+        }
+      })
+    })
+
+    request.on('error', (error) => {
+      console.error('Main process: Login request error:', error)
+      reject(error)
+    })
+
+    request.write(JSON.stringify({ usr: username, pwd: password }))
+    request.end()
+  })
+})
+
+ipcMain.handle('auth:login-token', async (_e, { url, apiKey, apiSecret }) => {
+    console.log('Main process: Attempting token login to', url)
+
+    // Ensure clean URL
+    const cleanUrl = url.trim().replace(/\/$/, '')
+    const targetUrl = `${cleanUrl}/api/method/frappe.auth.get_logged_user`
+
+    // Verify credentials by making a request
+    return new Promise((resolve, reject) => {
+        const request = net.request({
+            method: 'GET',
+            url: targetUrl
+        })
+
+        request.setHeader('Authorization', `token ${apiKey}:${apiSecret}`)
+        request.setHeader('Origin', cleanUrl)
+
+        request.on('response', (response) => {
+             if (response.statusCode !== 200) {
+                 reject(new Error(`Token verification failed with status ${response.statusCode}`))
+                 return
+             }
+
+             let body = ''
+             response.on('data', chunk => body += chunk)
+             response.on('end', () => {
+                 try {
+                     const json = JSON.parse(body)
+
+                     // If we are here, token is valid
+                     const authData = {
+                         apiKey,
+                         apiSecret,
+                         mode: 'token',
+                         username: json.message // Usually returns logic user name
+                     }
+
+                     // Setup injection for subsequent requests
+                     setupAuthInjection(cleanUrl, authData)
+
+                     // Save credentials
+                     const data = JSON.stringify({ baseUrl: cleanUrl, auth: authData })
+                     if (safeStorage.isEncryptionAvailable()) {
+                        const encrypted = safeStorage.encryptString(data)
+                        store.set('erp-credentials', encrypted.toString('hex'))
+                    } else {
+                        store.set('erp-credentials', data)
+                    }
+
+                    resolve(json)
+                 } catch (e) {
+                     reject(e)
+                 }
+             })
+        })
+
+        request.on('error', (e) => reject(e))
+        request.end()
+    })
+})
+
+ipcMain.handle('auth:logout', async () => {
+    console.log('Main process: Logging out...')
+    try {
+        // 1. Clear stored credentials
+        store.delete('erp-credentials')
+
+        // 2. Clear cookies
+        const cookies = await session.defaultSession.cookies.get({})
+        for (const cookie of cookies) {
+            let url = ''
+            // get prefix, like https://...
+            url = (cookie.secure ? 'https://' : 'http://') + cookie.domain + cookie.path
+            await session.defaultSession.cookies.remove(url, cookie.name)
+        }
+
+        // 3. Reset auth injection
+        setupAuthInjection('', null)
+
+        console.log('Main process: Logout successful')
+        return true
+    } catch (e) {
+         console.error('Main process: Logout failed', e)
+         return false
+    }
+})
 
 ipcMain.handle('credentials:get', async () => {
   console.log('Main process: Getting credentials...')

@@ -11,65 +11,109 @@ import {
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import logoUrl from './assets/logo.svg'
 import { Logo } from './Logo'
-import { Mail, Lock, ArrowRight, AlertCircle, Globe } from 'lucide-react'
+import { Mail, Lock, ArrowRight, AlertCircle, Globe, Key } from 'lucide-react'
 import Dashboard from './Dashboard'
 
-const originalFetch = window.fetch;
-window.fetch = async (input, init) => {
-  init = init || {};
-  init.credentials = 'include';
-
-  // If we are hitting the proxy, tell it where to go
-  if (typeof input === 'string' && input.startsWith('/frappe')) {
-      const target = (window as any).frappeRealUrl;
-      const explicitHeader = (init.headers as any)?.['X-Proxy-Target'];
-
-      if (target && !explicitHeader) {
-          if (!init.headers) init.headers = {};
-          if (init.headers instanceof Headers) {
-              init.headers.set('X-Proxy-Target', target);
-          } else if (Array.isArray(init.headers)) {
-              init.headers.push(['X-Proxy-Target', target]);
-          } else {
-              (init.headers as any)['X-Proxy-Target'] = target;
-          }
-      }
-  }
-  return originalFetch(input, init);
-};
 
 type Stats = { total: number; unsynced: number; today: number }
 
-function App({ onUrlChange }: { onUrlChange: (url: string) => void }) {
-  const { currentUser, logout } = useFrappeAuth()
+// Custom hook to check auth status manually
+function useCustomAuth(onUrlChange: (url: string) => void) {
+  const [currentUser, setCurrentUser] = useState<string | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string>()
 
-  useEffect(() => {
-    const loadSavedUrl = async () => {
-      try {
-        const creds = await window.api?.getCredentials?.()
-        if (creds?.baseUrl) {
-          onUrlChange(creds.baseUrl)
+  const checkAuth = async () => {
+    setIsLoading(true)
+    setError(undefined)
+    try {
+      // Get stored URL first
+      const creds = await window.api?.getCredentials?.()
+      if (creds?.baseUrl) {
+        onUrlChange(creds.baseUrl)
+        // Set global for fetch patch
+        ;(window as any).frappeRealUrl = creds.baseUrl
+
+        // Manual verification
+        const res = await fetch(`${creds.baseUrl}/api/method/frappe.auth.get_logged_user`)
+        if (res.status === 200) {
+           const json = await res.json()
+           // Standard Frappe response: { message: "Administrator" }
+           if (json.message && json.message !== 'Guest') {
+             setCurrentUser(json.message)
+             window.api?.log('info', 'Auth check success:', json.message)
+           } else {
+             setCurrentUser(null)
+             window.api?.log('info', 'Auth check returned Guest or invalid user')
+           }
+        } else {
+           setCurrentUser(null)
+           window.api?.log('warn', 'Auth check failed with status:', res.status)
         }
-      } catch (error) {
-        console.error('Failed to load saved URL:', error)
+      } else {
+        window.api?.log('info', 'No credentials found')
+        setCurrentUser(null)
       }
+    } catch (e: any) {
+      console.error('Auth check error:', e)
+      window.api?.log('error', 'Auth check exception:', e.message)
+      setError(e.message)
+      setCurrentUser(null)
+    } finally {
+      setIsLoading(false)
     }
-    loadSavedUrl()
+  }
+
+  // Initial check
+  useEffect(() => {
+    checkAuth()
   }, [])
+
+  return { currentUser, isLoading, error, checkAuth }
+}
+
+function App({ onUrlChange }: { onUrlChange: (url: string) => void }) {
+  const { currentUser, isLoading, error, checkAuth } = useCustomAuth(onUrlChange)
+  const { logout: sdkLogout } = useFrappeAuth() // Still use SDK's logout if useful, or implement custom
+
+  // Custom logout handler
+  const handleLogout = async () => {
+    try {
+      if (sdkLogout) await sdkLogout()
+
+      // Call Main Process logout to clear stored credentials
+      await window.api?.logout?.()
+
+      // Force reload to reset app state (will now fail checkAuth and show Login)
+      window.location.reload()
+    } catch (e) {
+      console.error('Logout failed', e)
+      window.location.reload()
+    }
+  }
+
+  if (isLoading) {
+    return (
+      <div className='min-h-screen bg-slate-50 flex items-center justify-center'>
+        <div className='text-slate-600'>Loading session...</div>
+      </div>
+    )
+  }
 
   if (!currentUser) {
     return <Login onUrlChange={onUrlChange} />
   }
 
-  return <Dashboard currentUser={currentUser} logout={logout} />
+  return <Dashboard currentUser={currentUser} logout={handleLogout} />
 }
 
-
-
 function Login({ onUrlChange }: { onUrlChange: (url: string) => void }) {
+  const [mode, setMode] = useState<'password' | 'token'>('password')
   const [url, setUrl] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [apiKey, setApiKey] = useState('')
+  const [apiSecret, setApiSecret] = useState('')
   const [rememberMe, setRememberMe] = useState(false)
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(false)
@@ -81,8 +125,17 @@ function Login({ onUrlChange }: { onUrlChange: (url: string) => void }) {
         const creds = await window.api?.getCredentials?.()
         if (creds) {
           if (creds.baseUrl) setUrl(creds.baseUrl)
-          if (creds.auth?.username) setEmail(creds.auth.username)
-          if (creds.auth?.password) setPassword(creds.auth.password)
+          if (creds.auth) {
+              if (creds.auth.mode === 'token') {
+                  setMode('token')
+                  if (creds.auth.apiKey) setApiKey(creds.auth.apiKey)
+                  if (creds.auth.apiSecret) setApiSecret(creds.auth.apiSecret)
+              } else {
+                  setMode('password')
+                  if (creds.auth.username) setEmail(creds.auth.username)
+                  if (creds.auth.password) setPassword(creds.auth.password)
+              }
+          }
           setRememberMe(true)
         }
       } catch (err) {
@@ -112,21 +165,21 @@ function Login({ onUrlChange }: { onUrlChange: (url: string) => void }) {
 
       // Update provider URL
       onUrlChange(url)
+      // Force sync update for fetch patch to work immediately for the login request
+      ;(window as any).frappeRealUrl = url
 
-      // Login
-      const result = await login({ username: email, password })
-      console.log('Login result:', result)
-
-      // Persist credentials only if Remember Me is checked
-      if (rememberMe) {
-        await window.api?.setCredentials?.(url, {
-          mode: 'password',
-          username: email,
-          password,
-        })
+      let result
+      if (mode === 'token') {
+          // Token Login
+          result = await window.api!.loginWithToken(url, apiKey, apiSecret)
+      } else {
+          // Password Login
+          result = await window.api!.login(url, email, password)
       }
 
-      // Force reload to ensure session is picked up and redirect happens
+      console.log('Login result:', result)
+
+      // Force reload to ensure session/token is picked up and redirect happens
       window.location.reload()
 
       // Success is handled by App component observing currentUser
@@ -135,7 +188,7 @@ function Login({ onUrlChange }: { onUrlChange: (url: string) => void }) {
       let errorMessage = 'Unknown error'
       if (e?.message) {
         if (e.message.includes('401') || e.message.includes('Unauthorized')) {
-          errorMessage = 'Invalid username or password'
+          errorMessage = 'Invalid credentials'
         } else if (
           e.message.includes('404') ||
           e.message.includes('Not Found')
@@ -174,6 +227,32 @@ function Login({ onUrlChange }: { onUrlChange: (url: string) => void }) {
 
         {/* Form Section */}
         <div className='px-8 pb-8'>
+          {/* Mode Toggle */}
+          <div className="flex p-1 mb-6 bg-slate-100 dark:bg-slate-900 rounded-xl">
+            <button
+              type="button"
+              onClick={() => setMode('password')}
+              className={`flex-1 py-2 text-sm font-medium rounded-lg transition-all ${
+                mode === 'password'
+                  ? 'bg-white dark:bg-slate-700 text-slate-800 dark:text-white shadow-sm'
+                  : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'
+              }`}
+            >
+              Password
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode('token')}
+              className={`flex-1 py-2 text-sm font-medium rounded-lg transition-all ${
+                mode === 'token'
+                  ? 'bg-white dark:bg-slate-700 text-slate-800 dark:text-white shadow-sm'
+                  : 'text-slate-500 hover:text-slate-700 dark:text-slate-400'
+              }`}
+            >
+              API Token
+            </button>
+          </div>
+
           <form onSubmit={handleSubmit} className='space-y-5'>
             {error && (
               <div className='bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 p-3 rounded-lg text-sm flex items-center gap-2 animate-fade-in'>
@@ -201,62 +280,88 @@ function Login({ onUrlChange }: { onUrlChange: (url: string) => void }) {
               </div>
             </div>
 
-            <div>
-              <label className='block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5'>
-                Email Address
-              </label>
-              <div className='relative'>
-                <div className='absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none'>
-                  <Mail size={18} className='text-slate-400' />
-                </div>
-                <input
-                  type='text'
-                  required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className='block w-full pl-10 pr-3 py-2.5 border border-slate-300 dark:border-slate-600 rounded-xl bg-white dark:bg-slate-900 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all sm:text-sm'
-                  placeholder='name@company.com'
-                />
-              </div>
-            </div>
+            {mode === 'password' ? (
+                <>
+                    <div>
+                    <label className='block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5'>
+                        Email Address
+                    </label>
+                    <div className='relative'>
+                        <div className='absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none'>
+                        <Mail size={18} className='text-slate-400' />
+                        </div>
+                        <input
+                        type='text'
+                        required
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        className='block w-full pl-10 pr-3 py-2.5 border border-slate-300 dark:border-slate-600 rounded-xl bg-white dark:bg-slate-900 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all sm:text-sm'
+                        placeholder='name@company.com'
+                        />
+                    </div>
+                    </div>
 
-            <div>
-              <label className='block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5'>
-                Password
-              </label>
-              <div className='relative'>
-                <div className='absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none'>
-                  <Lock size={18} className='text-slate-400' />
-                </div>
-                <input
-                  type='password'
-                  required
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className='block w-full pl-10 pr-3 py-2.5 border border-slate-300 dark:border-slate-600 rounded-xl bg-white dark:bg-slate-900 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all sm:text-sm'
-                  placeholder='••••••••'
-                />
-              </div>
-            </div>
+                    <div>
+                    <label className='block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5'>
+                        Password
+                    </label>
+                    <div className='relative'>
+                        <div className='absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none'>
+                        <Lock size={18} className='text-slate-400' />
+                        </div>
+                        <input
+                        type='password'
+                        required
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        className='block w-full pl-10 pr-3 py-2.5 border border-slate-300 dark:border-slate-600 rounded-xl bg-white dark:bg-slate-900 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all sm:text-sm'
+                        placeholder='••••••••'
+                        />
+                    </div>
+                    </div>
+                </>
+            ) : (
+                <>
+                     <div>
+                    <label className='block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5'>
+                        API Key
+                    </label>
+                    <div className='relative'>
+                        <div className='absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none'>
+                        <Key size={18} className='text-slate-400' />
+                        </div>
+                        <input
+                        type='text'
+                        required
+                        value={apiKey}
+                        onChange={(e) => setApiKey(e.target.value)}
+                        className='block w-full pl-10 pr-3 py-2.5 border border-slate-300 dark:border-slate-600 rounded-xl bg-white dark:bg-slate-900 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all sm:text-sm font-mono'
+                        placeholder='e.g. 394857398457'
+                        />
+                    </div>
+                    </div>
 
-            <div className='flex items-center justify-between'>
-              <div className='flex items-center'>
-                <input
-                  id='remember-me'
-                  name='remember-me'
-                  type='checkbox'
-                  checked={rememberMe}
-                  onChange={(e) => setRememberMe(e.target.checked)}
-                  className='h-4 w-4 text-teal-600 focus:ring-teal-500 border-gray-300 rounded'
-                />
-                <label
-                  htmlFor='remember-me'
-                  className='ml-2 block text-sm text-slate-600 dark:text-slate-400'
-                >
-                  Remember me
-                </label>
-              </div>
-            </div>
+                    <div>
+                    <label className='block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5'>
+                        API Secret
+                    </label>
+                    <div className='relative'>
+                        <div className='absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none'>
+                        <Lock size={18} className='text-slate-400' />
+                        </div>
+                        <input
+                        type='password'
+                        required
+                        value={apiSecret}
+                        onChange={(e) => setApiSecret(e.target.value)}
+                        className='block w-full pl-10 pr-3 py-2.5 border border-slate-300 dark:border-slate-600 rounded-xl bg-white dark:bg-slate-900 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all sm:text-sm font-mono'
+                        placeholder='••••••••'
+                        />
+                    </div>
+                    </div>
+                </>
+            )}
+
 
             <button
               type='submit'
@@ -267,7 +372,7 @@ function Login({ onUrlChange }: { onUrlChange: (url: string) => void }) {
                 <div className='w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin' />
               ) : (
                 <>
-                  Sign In <ArrowRight size={16} />
+                  {mode === 'password' ? 'Sign In' : 'Connect Instance'} <ArrowRight size={16} />
                 </>
               )}
             </button>
@@ -342,8 +447,8 @@ function AppWrapper() {
     [frappeUrl]
   )
 
-  // Compute provider URL and expose base URL globally BEFORE any conditional return
-  const providerUrl = import.meta.env.DEV ? '/frappe' : frappeUrl
+  // Use the real URL directly. Main Process handles auth injection and CORS is disabled.
+  const providerUrl = frappeUrl
   useEffect(() => {
     ;(window as any).frappeBaseUrl = providerUrl
     ;(window as any).frappeRealUrl = frappeUrl // Store real URL for the proxy header injection
@@ -442,7 +547,11 @@ declare global {
       runSync: () => Promise<{ synced: number; errors: string[] }>
       setCredentials: (baseUrl: string, auth: any) => Promise<void>
       getCredentials: () => Promise<{ baseUrl: string; auth: any } | null>
+      login: (url: string, usr: string, pwd: string) => Promise<any>
+      loginWithToken: (url: string, apiKey: string, apiSecret: string) => Promise<any>
+      logout: () => Promise<boolean>
       getNetworkStatus: () => Promise<boolean>
+      log: (level: string, ...args: any[]) => void
     }
   }
 }

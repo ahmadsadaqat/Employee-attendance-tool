@@ -31,5 +31,11 @@ contextBridge.exposeInMainWorld('api', {
   setCredentials: (baseUrl: string, auth: any) =>
     ipcRenderer.invoke('credentials:set', { baseUrl, auth }),
   getCredentials: () => ipcRenderer.invoke('credentials:get'),
+  login: (url: string, username: string, password: string) =>
+    ipcRenderer.invoke('auth:login', { url, username, password }),
+  loginWithToken: (url: string, apiKey: string, apiSecret: string) =>
+    ipcRenderer.invoke('auth:login-token', { url, apiKey, apiSecret }),
+  logout: () => ipcRenderer.invoke('auth:logout'),
   getNetworkStatus: () => ipcRenderer.invoke('network:status'),
+  log: (level: string, ...args: any[]) => ipcRenderer.send('log', level, ...args)
 })
