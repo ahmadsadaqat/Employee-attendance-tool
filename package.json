@@ -37,7 +37,7 @@
     "concurrently": "^9.2.1",
     "cross-env": "^7.0.3",
     "electron": "^32.3.3",
-    "electron-builder": "^26.0.12",
+    "electron-builder": "24.13.3",
     "esbuild": "^0.25.10",
     "esbuild-node-externals": "^1.18.0",
     "postcss": "^8.5.6",
