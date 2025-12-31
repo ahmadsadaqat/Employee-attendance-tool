@@ -120,7 +120,10 @@ app.whenReady().then(async () => {
   const { Database } = await import('../db/sqlite')
   const { ZKClient } = await import('./zkclient')
 
-  await Database.init()
+  // Initialize DB, potentially backfilling with current URL if available
+  const initialCreds = await getCredentials()
+  await Database.init(initialCreds?.baseUrl)
+
   createWindow()
 
   console.log('Main process: Window created, IPC handlers registered')
@@ -132,7 +135,8 @@ app.whenReady().then(async () => {
   // -------------------- IPC HANDLERS (MOVED INSIDE) --------------------
 
   ipcMain.handle('db:get-stats', async () => {
-    return Database.getStats()
+    const creds = await getCredentials()
+    return Database.getStats(creds?.baseUrl)
   })
 
   ipcMain.handle('device:test', async (_e, { ip, port }: { ip: string; port: number }) => {
@@ -141,18 +145,21 @@ app.whenReady().then(async () => {
 
   // Device CRUD
   ipcMain.handle('device:add', async (_e, d: { name: string, ip: string, port: number, commKey?: string, useUdp?: boolean }) => {
+    const creds = await getCredentials()
     const id = Database.ensureDevice(
       d.name,
       d.ip,
       d.port,
       d.commKey ?? null,
-      d.useUdp ? 1 : 0
+      d.useUdp ? 1 : 0,
+      creds?.baseUrl
     )
     return { id }
   })
 
   ipcMain.handle('device:list', async () => {
-    return Database.listDevices()
+    const creds = await getCredentials()
+    return Database.listDevices(creds?.baseUrl)
   })
 
   ipcMain.handle('device:remove', async (_e, id: number) => {
@@ -162,13 +169,15 @@ app.whenReady().then(async () => {
   // Fetch logs from biometric device
   ipcMain.handle('device:fetchLogs', async (_e, { ip, port = 4370, name, commKey, useUdp }: any) => {
     try {
+      const creds = await getCredentials()
       const deviceName = name || `Device ${ip}`
       const deviceId = Database.ensureDevice(
         deviceName,
         ip,
         port ?? 4370,
         commKey ?? null,
-        useUdp ? 1 : 0
+        useUdp ? 1 : 0,
+        creds?.baseUrl
       )
 
       const logs = await ZKClient.fetchLogs({ ip, port, commKey, useUdp })
@@ -197,7 +206,8 @@ app.whenReady().then(async () => {
 
   // Attendance
   ipcMain.handle('attendance:list', async (_e, { limit = 100 } = { limit: 100 }) => {
-    return Database.listAttendance(limit)
+    const creds = await getCredentials()
+    return Database.listAttendance(limit, creds?.baseUrl)
   })
 
   ipcMain.handle('attendance:listByDevice', async (_e, { deviceId, limit = 100 }: { deviceId: number; limit?: number }) => {
@@ -205,7 +215,8 @@ app.whenReady().then(async () => {
   })
 
   ipcMain.handle('attendance:unsynced', async () => {
-    return Database.getUnsynced()
+    const creds = await getCredentials()
+    return Database.getUnsynced(creds?.baseUrl)
   })
 
   ipcMain.handle('attendance:markSynced', async (_e, ids: number[]) => {
@@ -216,15 +227,20 @@ app.whenReady().then(async () => {
   // Sync Logic
   ipcMain.handle('sync:run', async () => {
     console.log('Main: Starting Sync Run...')
-    const unsynced = Database.getUnsynced()
-    console.log(`Main: Found ${unsynced.length} unsynced records`)
-    if (!unsynced.length) return { synced: 0, errors: [] }
 
+    // We need credentials first to know which instance we are syncing for
     const creds = await getCredentials()
     if (!creds) {
         console.warn('Main: No ERP credentials found')
         return { synced: 0, errors: ['No ERP credentials stored'] }
     }
+
+    // Get unsynced from DB filtered by instance URL
+    const unsynced = Database.getUnsynced(creds.baseUrl)
+    console.log(`Main: Found ${unsynced.length} unsynced records for ${creds.baseUrl}`)
+
+    if (!unsynced.length) return { synced: 0, errors: [] }
+
     console.log(`Main: Using credentials for ${creds.baseUrl}`)
 
     const { baseUrl, auth } = creds
