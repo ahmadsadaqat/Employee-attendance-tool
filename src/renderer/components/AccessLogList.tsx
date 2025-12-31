@@ -1,7 +1,7 @@
 
-import React, { useRef } from 'react';
+import React, { useRef, useState } from 'react';
 import { CheckInRecord } from '../types';
-import { LogIn, LogOut, MapPin, TabletSmartphone, CloudUpload, RefreshCw, FileDown, CheckCircle2, Clock } from 'lucide-react';
+import { LogIn, LogOut, MapPin, TabletSmartphone, CloudUpload, RefreshCw, FileDown, CheckCircle2, Clock, ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface AccessLogListProps {
   logs: CheckInRecord[];
@@ -28,7 +28,7 @@ export const AccessLogList: React.FC<AccessLogListProps> = ({ logs, onImport, on
   const handleExportCSV = () => {
     // Define headers
     const headers = ['ID', 'Employee Name', 'Employee ID', 'Department', 'Timestamp', 'Device', 'Location', 'Type', 'Synced'];
-    
+
     // Map data to rows
     const rows = logs.map(log => [
       log.id,
@@ -59,6 +59,30 @@ export const AccessLogList: React.FC<AccessLogListProps> = ({ logs, onImport, on
     document.body.removeChild(link);
   };
 
+  // Pagination State
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(20);
+
+  // Reset page when logs change (optional, but good practice if filtering changes)
+  // useEffect(() => setPage(0), [logs.length]); // Optional
+
+  const handleChangePage = (newPage: number) => {
+    setPage(newPage);
+  };
+
+  const handleChangeRowsPerPage = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    setRowsPerPage(parseInt(e.target.value, 10));
+    setPage(0);
+  };
+
+  // Calculate Pagination
+  const count = logs.length;
+  const totalPages = Math.ceil(count / rowsPerPage);
+  const displayedLogs = logs.slice(page * rowsPerPage, (page + 1) * rowsPerPage);
+
+  const startRange = count === 0 ? 0 : page * rowsPerPage + 1;
+  const endRange = Math.min((page + 1) * rowsPerPage, count);
+
   const pendingCount = logs.filter(l => !l.syncedToErp).length;
 
   return (
@@ -68,18 +92,18 @@ export const AccessLogList: React.FC<AccessLogListProps> = ({ logs, onImport, on
            <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100">Access Logs</h2>
            <p className="text-sm text-slate-500 dark:text-slate-400">Comprehensive history of biometric events</p>
         </div>
-        
+
         <div className="flex flex-wrap gap-3">
           {/* Hidden File Input for CSV (Optional usage) */}
-          <input 
-            type="file" 
-            ref={fileInputRef} 
-            className="hidden" 
-            accept=".csv,.xlsx" 
+          <input
+            type="file"
+            ref={fileInputRef}
+            className="hidden"
+            accept=".csv,.xlsx"
             onChange={handleFileChange}
           />
-          
-          <button 
+
+          <button
             onClick={onImport} // Reusing onImport prop for Fetch Logic based on parent binding, but component UI shows "Fetch"
             className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 rounded-lg text-sm font-medium hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors shadow-sm"
           >
@@ -87,7 +111,7 @@ export const AccessLogList: React.FC<AccessLogListProps> = ({ logs, onImport, on
             Fetch from Devices
           </button>
 
-          <button 
+          <button
             onClick={handleExportCSV}
             className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 rounded-lg text-sm font-medium hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors shadow-sm"
           >
@@ -95,7 +119,7 @@ export const AccessLogList: React.FC<AccessLogListProps> = ({ logs, onImport, on
             Export CSV
           </button>
 
-          <button 
+          <button
             onClick={onSync} // Reusing onSync prop for "Push to ERP"
             className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors shadow-sm"
           >
@@ -119,14 +143,14 @@ export const AccessLogList: React.FC<AccessLogListProps> = ({ logs, onImport, on
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
-              {logs.length === 0 ? (
+              {displayedLogs.length === 0 ? (
                 <tr>
                   <td colSpan={5} className="px-6 py-8 text-center text-slate-400 dark:text-slate-500">
                     No logs found. Waiting for device activity...
                   </td>
                 </tr>
               ) : (
-                logs.map((log) => (
+                displayedLogs.map((log) => (
                   <tr key={log.id} className="hover:bg-slate-50/60 dark:hover:bg-slate-700/50 transition-colors">
                     <td className="px-6 py-4 text-slate-600 dark:text-slate-400 font-mono text-xs whitespace-nowrap">
                       {new Date(log.timestamp).toLocaleString()}
@@ -154,8 +178,8 @@ export const AccessLogList: React.FC<AccessLogListProps> = ({ logs, onImport, on
                     </td>
                     <td className="px-6 py-4">
                       <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-bold border uppercase tracking-wide
-                        ${log.type === 'CHECK_IN' 
-                          ? 'bg-teal-50 dark:bg-teal-900/30 text-teal-700 dark:text-teal-400 border-teal-200 dark:border-teal-800' 
+                        ${log.type === 'CHECK_IN'
+                          ? 'bg-teal-50 dark:bg-teal-900/30 text-teal-700 dark:text-teal-400 border-teal-200 dark:border-teal-800'
                           : 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-400 border-indigo-200 dark:border-indigo-800'
                         }`}>
                         {log.type === 'CHECK_IN' ? <LogIn size={12} /> : <LogOut size={12} />}
@@ -180,6 +204,50 @@ export const AccessLogList: React.FC<AccessLogListProps> = ({ logs, onImport, on
               )}
             </tbody>
           </table>
+        </div>
+      </div>
+
+      {/* Pagination Footer */}
+      <div className="flex items-center justify-between px-2">
+        <div className="text-sm text-slate-500 dark:text-slate-400">
+          Showing <span className="font-medium">{startRange}</span> to <span className="font-medium">{endRange}</span> of <span className="font-medium">{count}</span> entries
+        </div>
+
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-slate-500 dark:text-slate-400">Rows per page:</span>
+            <select
+              value={rowsPerPage}
+              onChange={handleChangeRowsPerPage}
+              className="text-sm border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            >
+              <option value={20}>20</option>
+              <option value={100}>100</option>
+              <option value={500}>500</option>
+              <option value={2000}>2000</option>
+              <option value={2500}>2500</option>
+            </select>
+          </div>
+
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => handleChangePage(Math.max(0, page - 1))}
+              disabled={page === 0}
+              className="p-1 rounded-md hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              <ChevronLeft size={20} className="text-slate-600 dark:text-slate-400" />
+            </button>
+            <span className="text-sm text-slate-600 dark:text-slate-300 font-medium px-2">
+              Page {page + 1} of {Math.max(1, totalPages)}
+            </span>
+            <button
+              onClick={() => handleChangePage(Math.min(totalPages - 1, page + 1))}
+              disabled={page >= totalPages - 1}
+              className="p-1 rounded-md hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              <ChevronRight size={20} className="text-slate-600 dark:text-slate-400" />
+            </button>
+          </div>
         </div>
       </div>
     </div>

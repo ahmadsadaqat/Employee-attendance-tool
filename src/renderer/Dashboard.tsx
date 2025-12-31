@@ -183,7 +183,7 @@ export default function Dashboard({ currentUser: username, logout }: DashboardPr
   });
 
   // NEW: Fetch Local Logs (Single Source of Truth for "Device Logs")
-  const { data: localLogs, refetch: refetchLocalLogs } = useLocalAttendance(500);
+  const { data: localLogs, refetch: refetchLocalLogs } = useLocalAttendance(2500);
 
   // NEW: Fetch Employees to map IDs to Names for local logs
   const { data: employees } = useFrappeDocList('Employee', {
@@ -197,10 +197,13 @@ export default function Dashboard({ currentUser: username, logout }: DashboardPr
   // Simple state for chart data
   const [realChartData, setRealChartData] = useState<{ time: string, count: number }[]>([]);
 
-  // Process Real Data
+  // 1. Initial Load of Devices
   useEffect(() => {
     loadDevices();
+  }, []);
 
+  // 2. Process Real Data (Depends on logs & devices)
+  useEffect(() => {
     // Prefer LOCAL logs if available, as they show the immediate state of the device sync
     // Fallback to Frappe logs if local is empty (e.g. fresh install with no local data yet but cloud data exists)
     const sourceLogs = (localLogs && localLogs.length > 0) ? localLogs : frappeLogs;

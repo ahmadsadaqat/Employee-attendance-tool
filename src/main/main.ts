@@ -229,41 +229,48 @@ app.whenReady().then(async () => {
 
     const { baseUrl, auth } = creds
 
-    // Initialize Frappe app with appropriate auth
-    let app: FrappeApp
-    if (auth?.mode === 'token') {
-      console.log('Main: Using Token Auth')
-      app = new FrappeApp(baseUrl, {
-        useToken: true,
-        token: () => `${auth.apiKey}:${auth.apiSecret}`,
-        type: 'token',
-      })
-    } else {
-      console.log('Main: Using Password Auth')
-      app = new FrappeApp(baseUrl)
-      try {
-        await app.auth().loginWithUsernamePassword({
-          username: auth.username,
-          password: auth.password,
-        })
-        console.log('Main: Login successful')
-      } catch (e: any) {
-        const message = (e && e.message) || (typeof e === 'string' ? e : 'Failed to login to ERP')
-        console.error('Main: ERP login failed', message)
-        return { synced: 0, errors: [`ERP login failed: ${message}`] }
-      }
+    // Helper for direct requests (bypassing SDK cookie issues in Node)
+    const frappeRequest = async (endpoint: string, method: string = 'GET', body?: any) => {
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+        if (auth.sid) {
+            headers['Cookie'] = `sid=${auth.sid}`
+        } else if (auth.apiKey) {
+            headers['Authorization'] = `token ${auth.apiKey}:${auth.apiSecret}`
+        }
+
+        const url = `${baseUrl.replace(/\/$/, '')}/api/resource/${endpoint}`
+        const options: RequestInit = { method, headers }
+        if (body) options.body = JSON.stringify(body)
+
+        const res = await fetch(url, options)
+        if (!res.ok) {
+            const text = await res.text()
+            let msg = text
+            try {
+                const json = JSON.parse(text)
+                // Try to extract readable message
+                if (json.exception) msg = json.exception
+                if (json._server_messages) {
+                    const msgs = JSON.parse(json._server_messages)
+                    const joined = msgs.map((m: any) => JSON.parse(m).message).join(', ')
+                    if (joined) msg = joined
+                }
+            } catch {}
+            throw new Error(`Request failed (${res.status}): ${msg}`)
+        }
+        return res.json()
     }
 
     // Fetch Employees to map Biometric ID -> Employee ID
-    // ERPNext 'Attendance' doctype requires the 'employee' field to be the Employee ID (e.g. HR-EMP-00001),
-    // not the biometric ID (e.g. 5).
     console.log('Main: Fetching employee mapping...')
     let employeeMap = new Map<string, string>()
     try {
-        const employees = await app.db().getDocList('Employee', {
-            fields: ['name', 'attendance_device_id'],
-            limit_page_length: 1000
+        const params = new URLSearchParams({
+            fields: JSON.stringify(['name', 'attendance_device_id']),
+            limit_page_length: '1000'
         })
+        const response = await frappeRequest(`Employee?${params.toString()}`)
+        const employees = response.data || []
 
         for (const emp of employees) {
             if (emp.attendance_device_id) {
@@ -289,15 +296,24 @@ app.whenReady().then(async () => {
             throw new Error(`No Employee found in ERP with Attendance Device ID '${u.employee_id}'`)
         }
 
+        // Format timestamp to YYYY-MM-DD HH:mm:ss (remove T, Z, and offsets)
+        // Frappe expects naive datetime in server timezone
+        const formattedTime = u.timestamp
+            .replace('T', ' ')
+            .replace('Z', '')
+            .split('.')[0] // Remove milliseconds
+            .split('+')[0] // Remove +00:00 offset if present
+
         const payload = {
           employee: realEmployeeId,
-          attendance_date: u.timestamp.split('T')[0],
-          in_time: u.status === 'IN' ? u.timestamp : undefined,
-          out_time: u.status === 'OUT' ? u.timestamp : undefined,
-          status: 'Present',
-          device_id: String(u.device_id) // Optional: pass device ID to ERP if custom field exists
+          time: formattedTime,
+          log_type: u.status, // "IN" or "OUT"
+          device_id: String(u.device_id),
+          latitude: '0.000000',
+          longitude: '0.000000'
         }
-        await app.db().createDoc('Attendance', payload)
+
+        await frappeRequest('Employee Checkin', 'POST', payload)
         results.push({ ok: true })
       } catch (e: any) {
         console.error(`Main: Failed to sync record ${u.id}:`, e?.message)
