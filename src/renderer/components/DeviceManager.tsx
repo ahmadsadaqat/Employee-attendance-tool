@@ -6,10 +6,12 @@ interface DeviceManagerProps {
   devices: Device[];
   onAddDevice: (device: Device) => void;
   onDeleteDevice: (id: string) => void;
+  onConnectDevice: (device: Device) => Promise<void>;
 }
 
-export const DeviceManager: React.FC<DeviceManagerProps> = ({ devices, onAddDevice, onDeleteDevice }) => {
+export const DeviceManager: React.FC<DeviceManagerProps> = ({ devices, onAddDevice, onDeleteDevice, onConnectDevice }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [connectingId, setConnectingId] = useState<string | null>(null);
   const [newDevice, setNewDevice] = useState<Partial<Device>>({
     name: '',
     location: '',
@@ -17,6 +19,15 @@ export const DeviceManager: React.FC<DeviceManagerProps> = ({ devices, onAddDevi
     ipAddress: '192.168.1.X',
     port: '4370'
   });
+
+  const handleConnect = async (device: Device) => {
+    setConnectingId(device.id);
+    try {
+      await onConnectDevice(device);
+    } finally {
+      setConnectingId(null);
+    }
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -52,7 +63,7 @@ export const DeviceManager: React.FC<DeviceManagerProps> = ({ devices, onAddDevi
            <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100">Device Management</h2>
            <p className="text-sm text-slate-500 dark:text-slate-400">Manage biometric terminals and controllers</p>
         </div>
-        <button 
+        <button
           onClick={() => setIsModalOpen(true)}
           className="flex items-center gap-2 bg-teal-600 text-white px-4 py-2 rounded-lg hover:bg-teal-700 transition-colors shadow-sm"
         >
@@ -72,13 +83,23 @@ export const DeviceManager: React.FC<DeviceManagerProps> = ({ devices, onAddDevi
                 }`}>
                    {getDeviceIcon(device.type, 20)}
                 </div>
-                <button 
-                  onClick={() => onDeleteDevice(device.id)}
-                  className="text-slate-300 dark:text-slate-600 hover:text-red-500 dark:hover:text-red-400 transition-colors p-1"
-                  title="Remove Device"
-                >
-                  <Trash2 size={18} />
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => handleConnect(device)}
+                    disabled={connectingId === device.id}
+                    className="text-slate-400 dark:text-slate-500 hover:text-teal-600 dark:hover:text-teal-400 transition-colors p-1 disabled:opacity-50"
+                    title="Connect to Device"
+                  >
+                    <Activity size={18} className={connectingId === device.id ? "animate-spin" : ""} />
+                  </button>
+                  <button
+                    onClick={() => onDeleteDevice(device.id)}
+                    className="text-slate-300 dark:text-slate-600 hover:text-red-500 dark:hover:text-red-400 transition-colors p-1"
+                    title="Remove Device"
+                  >
+                    <Trash2 size={18} />
+                  </button>
+                </div>
               </div>
 
               <h3 className="font-bold text-slate-800 dark:text-slate-100 text-lg mb-1">{device.name}</h3>
@@ -88,10 +109,10 @@ export const DeviceManager: React.FC<DeviceManagerProps> = ({ devices, onAddDevi
                   device.status === 'ONLINE' ? 'bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-400 border-green-100 dark:border-green-800' :
                   device.status === 'OFFLINE' ? 'bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-400 border-red-100 dark:border-red-800' : 'bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 border-amber-100 dark:border-amber-800'
               }`}>
-                {device.status === 'ONLINE' ? <Wifi size={16} /> : 
+                {device.status === 'ONLINE' ? <Wifi size={16} /> :
                  device.status === 'OFFLINE' ? <WifiOff size={16} /> : <Activity size={16} />}
                 <span>{device.status}</span>
-                
+
                 {/* Device Type Indicator */}
                 <span className="mx-1 opacity-40">|</span>
                 <span className="flex items-center gap-1.5" title={`Type: ${device.type}`}>
@@ -118,9 +139,9 @@ export const DeviceManager: React.FC<DeviceManagerProps> = ({ devices, onAddDevi
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Device Name</label>
-                <input 
+                <input
                   required
-                  type="text" 
+                  type="text"
                   value={newDevice.name}
                   onChange={e => setNewDevice({...newDevice, name: e.target.value})}
                   className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded-lg focus:ring-2 focus:ring-teal-500 outline-none"
@@ -129,9 +150,9 @@ export const DeviceManager: React.FC<DeviceManagerProps> = ({ devices, onAddDevi
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Location</label>
-                <input 
+                <input
                   required
-                  type="text" 
+                  type="text"
                   value={newDevice.location}
                   onChange={e => setNewDevice({...newDevice, location: e.target.value})}
                   className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded-lg focus:ring-2 focus:ring-teal-500 outline-none"
@@ -141,7 +162,7 @@ export const DeviceManager: React.FC<DeviceManagerProps> = ({ devices, onAddDevi
               <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Type</label>
-                    <select 
+                    <select
                       value={newDevice.type}
                       onChange={e => setNewDevice({...newDevice, type: e.target.value as any})}
                       className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded-lg focus:ring-2 focus:ring-teal-500 outline-none"
@@ -153,8 +174,8 @@ export const DeviceManager: React.FC<DeviceManagerProps> = ({ devices, onAddDevi
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Port</label>
-                    <input 
-                      type="text" 
+                    <input
+                      type="text"
                       value={newDevice.port}
                       onChange={e => setNewDevice({...newDevice, port: e.target.value})}
                       className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded-lg focus:ring-2 focus:ring-teal-500 outline-none"
@@ -164,22 +185,22 @@ export const DeviceManager: React.FC<DeviceManagerProps> = ({ devices, onAddDevi
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">IP Address</label>
-                <input 
-                  type="text" 
+                <input
+                  type="text"
                   value={newDevice.ipAddress}
                   onChange={e => setNewDevice({...newDevice, ipAddress: e.target.value})}
                   className="w-full px-3 py-2 border border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded-lg focus:ring-2 focus:ring-teal-500 outline-none"
                 />
               </div>
               <div className="flex justify-end gap-3 mt-6">
-                <button 
+                <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
                   className="px-4 py-2 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
                 >
                   Cancel
                 </button>
-                <button 
+                <button
                   type="submit"
                   className="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors font-medium"
                 >

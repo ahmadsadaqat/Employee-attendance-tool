@@ -34,21 +34,67 @@ export class ZKClient {
     // Constructor per README: (ip, port, timeout, inport)
     const zk = new ZKLib(ip, port, 15000, 5000)
     try {
-      await zk.createSocket()
-      if (useUdp && zk.connectionType !== 'udp') {
-        try {
-          await zk.zklibTcp?.disconnect?.()
-        } catch {}
-        try {
-          await zk.zklibUdp?.createSocket?.()
-          await zk.zklibUdp?.connect?.()
-          zk.connectionType = 'udp'
-        } catch {}
+      let logs: any[] = [];
+      let success = false;
+
+      // ATTEMPT 1: TCP
+      if (!useUdp && zk.zklibTcp) {
+          try {
+             console.log('ZKClient: Attempting TCP Fetch...')
+
+             // 1a. Connect TCP
+             await zk.zklibTcp.createSocket(
+               (err: any) => console.error('ZK TCP Error:', err),
+               () => {} // silence close warning during attempt
+             )
+             await zk.zklibTcp.connect()
+             zk.connectionType = 'tcp'
+             console.log('ZKClient: TCP Connected, fetching logs...')
+
+             // 1b. Fetch
+             const raw = await zk.getAttendances(() => {})
+             logs = Array.isArray(raw) ? raw : raw?.data
+             success = true
+             console.log(`ZKClient: TCP Fetch Success. Got ${logs?.length} records.`)
+          } catch(e) {
+             console.warn(`ZKClient: TCP attempt failed (${(e as any).message}), switching to UDP...`)
+             try {
+                if (zk.zklibTcp.disconnect) await zk.zklibTcp.disconnect()
+             } catch {}
+          }
       }
-      // Try getAttendances with internal progress callback to prolong device read
-      const raw = await zk.getAttendances(() => {})
-      const list = Array.isArray(raw) ? raw : raw?.data
+
+      // ATTEMPT 2: UDP (Fallback or if useUdp=true)
+      if (!success) {
+         console.log('ZKClient: Attempting UDP Fetch...')
+         try {
+             // Cleanup if needed
+             if (zk.zklibTcp?.socket) try { await zk.zklibTcp.disconnect() } catch {}
+
+             zk.connectionType = 'udp'
+             if (zk.zklibUdp) {
+                await zk.zklibUdp.createSocket(
+                  (err: any) => console.error('ZK UDP Error:', err),
+                  () => console.warn('ZK UDP Closed')
+                )
+                await zk.zklibUdp.connect()
+             } else {
+                await zk.createSocket() // standard fallback
+             }
+
+             console.log('ZKClient: UDP Connected, fetching logs...')
+             const raw = await zk.getAttendances(() => {})
+             logs = Array.isArray(raw) ? raw : raw?.data
+             success = true
+             console.log(`ZKClient: UDP Fetch Success. Got ${logs?.length} records.`)
+         } catch(e: any) {
+             throw new Error(`Fetch failed (TCP & UDP): ${e.message || e}`)
+         }
+      }
+
+      const list = logs
       if (!list) return []
+
       // Map to our schema
       const mapped = list.map((r: any) => {
         const deviceUserId = String(
@@ -64,6 +110,7 @@ export class ZKClient {
         }
       })
       return mapped
+
     } finally {
       try {
         await zk.disconnect()

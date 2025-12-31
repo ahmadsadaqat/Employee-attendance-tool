@@ -172,6 +172,7 @@ app.whenReady().then(async () => {
       )
 
       const logs = await ZKClient.fetchLogs({ ip, port, commKey, useUdp })
+      console.log(`Main: Fetched ${logs.length} logs from ZKClient`)
       let imported = 0
       for (const log of logs) {
         const id = Database.insertAttendance({
@@ -183,6 +184,7 @@ app.whenReady().then(async () => {
         })
         if (id) imported += 1
       }
+      console.log(`Main: Imported ${imported} new logs into DB (others ignored)`)
 
       return { imported }
     } catch (e: any) {
@@ -213,48 +215,92 @@ app.whenReady().then(async () => {
 
   // Sync Logic
   ipcMain.handle('sync:run', async () => {
+    console.log('Main: Starting Sync Run...')
     const unsynced = Database.getUnsynced()
+    console.log(`Main: Found ${unsynced.length} unsynced records`)
     if (!unsynced.length) return { synced: 0, errors: [] }
 
     const creds = await getCredentials()
-    if (!creds) return { synced: 0, errors: ['No ERP credentials stored'] }
+    if (!creds) {
+        console.warn('Main: No ERP credentials found')
+        return { synced: 0, errors: ['No ERP credentials stored'] }
+    }
+    console.log(`Main: Using credentials for ${creds.baseUrl}`)
 
     const { baseUrl, auth } = creds
 
     // Initialize Frappe app with appropriate auth
     let app: FrappeApp
     if (auth?.mode === 'token') {
+      console.log('Main: Using Token Auth')
       app = new FrappeApp(baseUrl, {
         useToken: true,
         token: () => `${auth.apiKey}:${auth.apiSecret}`,
         type: 'token',
       })
     } else {
+      console.log('Main: Using Password Auth')
       app = new FrappeApp(baseUrl)
       try {
         await app.auth().loginWithUsernamePassword({
           username: auth.username,
           password: auth.password,
         })
+        console.log('Main: Login successful')
       } catch (e: any) {
         const message = (e && e.message) || (typeof e === 'string' ? e : 'Failed to login to ERP')
+        console.error('Main: ERP login failed', message)
         return { synced: 0, errors: [`ERP login failed: ${message}`] }
       }
     }
 
+    // Fetch Employees to map Biometric ID -> Employee ID
+    // ERPNext 'Attendance' doctype requires the 'employee' field to be the Employee ID (e.g. HR-EMP-00001),
+    // not the biometric ID (e.g. 5).
+    console.log('Main: Fetching employee mapping...')
+    let employeeMap = new Map<string, string>()
+    try {
+        const employees = await app.db().getDocList('Employee', {
+            fields: ['name', 'attendance_device_id'],
+            limit_page_length: 1000
+        })
+
+        for (const emp of employees) {
+            if (emp.attendance_device_id) {
+                // Store mapping: "5" -> "HR-EMP-00001"
+                employeeMap.set(String(emp.attendance_device_id), emp.name)
+            }
+        }
+        console.log(`Main: Mapped ${employeeMap.size} employees with biometric IDs`)
+    } catch (e: any) {
+        console.error('Main: Failed to fetch employee mapping', e)
+        return { synced: 0, errors: [`Failed to map employees: ${e.message}`] }
+    }
+
     const results: { ok: boolean; error?: string }[] = []
+    console.log(`Main: Syncing ${unsynced.length} records...`)
+
     for (const u of unsynced) {
       try {
+        // Resolve Real Employee ID
+        const realEmployeeId = employeeMap.get(String(u.employee_id))
+
+        if (!realEmployeeId) {
+            throw new Error(`No Employee found in ERP with Attendance Device ID '${u.employee_id}'`)
+        }
+
         const payload = {
-          employee: u.employee_id,
+          employee: realEmployeeId,
           attendance_date: u.timestamp.split('T')[0],
           in_time: u.status === 'IN' ? u.timestamp : undefined,
           out_time: u.status === 'OUT' ? u.timestamp : undefined,
           status: 'Present',
+          device_id: String(u.device_id) // Optional: pass device ID to ERP if custom field exists
         }
         await app.db().createDoc('Attendance', payload)
         results.push({ ok: true })
       } catch (e: any) {
+        console.error(`Main: Failed to sync record ${u.id}:`, e?.message)
         results.push({ ok: false, error: e?.message || 'Unknown error' })
       }
     }
@@ -262,9 +308,12 @@ app.whenReady().then(async () => {
     const syncedIds = results.filter((r) => r.ok).map((_, i) => unsynced[i].id!)
     Database.markSynced(syncedIds)
 
+    console.log(`Main: Sync complete. Synced: ${syncedIds.length}, Errors: ${results.filter(r => !r.ok).length}`)
+
     return {
       synced: syncedIds.length,
       errors: results.filter((r) => !r.ok).map((r) => r.error as string),
+      syncedIds // Return IDs so UI can update state locally
     }
   })
 

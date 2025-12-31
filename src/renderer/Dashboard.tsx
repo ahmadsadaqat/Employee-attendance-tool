@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { useFrappeDocList, useDeviceLogs } from './hooks/useData';
+import { useFrappeDocList, useDeviceLogs, useLocalAttendance } from './hooks/useData';
 import {
   RefreshCw,
   Menu,
@@ -182,6 +182,15 @@ export default function Dashboard({ currentUser: username, logout }: DashboardPr
     refetchInterval: 30000 // Poll every 30s auto-magically
   });
 
+  // NEW: Fetch Local Logs (Single Source of Truth for "Device Logs")
+  const { data: localLogs, refetch: refetchLocalLogs } = useLocalAttendance(500);
+
+  // NEW: Fetch Employees to map IDs to Names for local logs
+  const { data: employees } = useFrappeDocList('Employee', {
+      fields: ['name', 'employee_name', 'department', 'image'],
+      limit: 1000
+  });
+
   // ZKTeco Device Sync Mutation
   const deviceSync = useDeviceLogs();
 
@@ -192,20 +201,44 @@ export default function Dashboard({ currentUser: username, logout }: DashboardPr
   useEffect(() => {
     loadDevices();
 
-    if (frappeLogs) {
+    // Prefer LOCAL logs if available, as they show the immediate state of the device sync
+    // Fallback to Frappe logs if local is empty (e.g. fresh install with no local data yet but cloud data exists)
+    const sourceLogs = (localLogs && localLogs.length > 0) ? localLogs : frappeLogs;
+
+    if (sourceLogs) {
+      // Helper to find employee info
+      const getEmpInfo = (id: string) => {
+          const e = employees?.find((emp: any) => emp.name === id || emp.employee_name === id);
+          return {
+              name: e?.employee_name || id,
+              dept: e?.department || 'N/A',
+              avatar: e?.image
+                ? ((window as any).frappeBaseUrl + e.image)
+                : `https://ui-avatars.com/api/?name=${encodeURIComponent(e?.employee_name || id)}&background=random`
+          };
+      };
+
       // 1. Map to CheckInRecord
-      const mappedRecords: CheckInRecord[] = frappeLogs.map((log: any) => ({
-        id: log.name,
-        employeeId: log.employee,
-        employeeName: log.employee_name,
-        department: 'N/A', // Not available in simple fetch, would need link fetching
-        timestamp: log.time,
-        device: log.device_id || 'Unknown Device',
-        location: 'Main Office', // Placeholder or derive from device
-        type: log.log_type === 'IN' ? 'CHECK_IN' : 'CHECK_OUT',
-        avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(log.employee_name)}&background=random`,
-        syncedToErp: true
-      }));
+      const mappedRecords: CheckInRecord[] = sourceLogs.map((log: any) => {
+          // Identify if source is Local or Frappe
+          const isLocal = log.synced !== undefined; // Local has 'synced' column (0 or 1)
+
+          const empId = isLocal ? log.employee_id : log.employee;
+          const empInfo = getEmpInfo(empId);
+
+          return {
+            id: isLocal ? String(log.id) : log.name,
+            employeeId: empId,
+            employeeName: empInfo.name,
+            department: empInfo.dept,
+            timestamp: isLocal ? log.timestamp : log.time,
+            device: isLocal ? (devices.find(d => d.id === String(log.device_id))?.name || `Device ${log.device_id}`) : (log.device_id || 'Unknown Device'),
+            location: 'Main Office',
+            type: (isLocal ? log.status : log.log_type) === 'IN' ? 'CHECK_IN' : 'CHECK_OUT',
+            avatar: empInfo.avatar,
+            syncedToErp: isLocal ? (log.synced === 1) : true // Frappe logs are by definition synced
+          };
+      });
 
       setCheckIns(mappedRecords);
 
@@ -253,7 +286,7 @@ export default function Dashboard({ currentUser: username, logout }: DashboardPr
 
       setRealChartData(cumulativeChartData);
     }
-  }, [frappeLogs]);
+  }, [frappeLogs, localLogs, employees, devices]);
 
   // Polling is now handled by useFrappeDocList's refetchInterval
 
@@ -272,12 +305,36 @@ export default function Dashboard({ currentUser: username, logout }: DashboardPr
     setAlerts(prev => [newAlert, ...prev]);
   };
 
+  const syncToERP = async (silent = false) => {
+    try {
+      if (!silent) addNotification('Syncing with ERP system...', 'INFO', 'ERP Integration');
+
+      const result = await (window as any).api?.runSync?.();
+
+      if (result?.synced > 0) {
+        addNotification(`Successfully synced ${result.synced} records to ERP`, 'SUCCESS', 'ERP Integration');
+        // Refresh local view
+        setCheckIns(prev => prev.map(c => result.syncedIds?.includes(c.id) ? { ...c, syncedToErp: true } : c));
+        refetchLogs();
+      } else if (result?.errors?.length > 0) {
+        addNotification(`Sync completed with errors: ${result.errors[0]}`, 'WARNING', 'ERP Integration');
+      } else if (!silent) {
+        addNotification('All records are already in sync', 'SUCCESS', 'ERP Integration');
+      }
+    } catch (e: any) {
+      addNotification(`Sync failed: ${e.message}`, 'CRITICAL', 'ERP Integration');
+    }
+  };
+
   const handleForceFetchDevices = async () => {
     setIsLoading(true);
     try {
         const count = await deviceSync.mutateAsync();
-        // refetchLogs() handled by invalidation in hook
-        addNotification(`Synced ${count} logs from Devices & ERP`, 'SUCCESS', 'Device Sync');
+        addNotification(`Synced ${count} logs from devices`, 'SUCCESS', 'Device Sync');
+
+        if (count > 0) {
+            await syncToERP(true);
+        }
     } catch (e: any) {
         addNotification(`Sync failed: ${e.message}`, 'CRITICAL', 'Device Sync');
     } finally {
@@ -334,17 +391,55 @@ export default function Dashboard({ currentUser: username, logout }: DashboardPr
 
   // "Import" button logic - Sends to ERP
   const handleForcePushToERP = () => {
-      setIsLoading(true);
-      setTimeout(() => {
-          const pendingCount = checkIns.filter(c => !c.syncedToErp).length;
-          setCheckIns(prev => prev.map(c => ({...c, syncedToErp: true})));
-          setIsLoading(false);
-          addNotification(`Successfully pushed ${pendingCount} records to ERP System`, 'SUCCESS', 'ERP Integration');
-      }, 1500);
+      syncToERP();
   };
 
   const handleClearAlerts = () => {
       setAlerts([]);
+  };
+
+  const handleConnectDevice = async (device: Device) => {
+    try {
+      addNotification(`Connecting to ${device.name}...`, 'INFO', 'Device Manager');
+      const result = await (window as any).api?.testDevice?.(device.ipAddress, Number(device.port));
+
+      if (result?.ok) {
+        addNotification(`Successfully connected to ${device.name}`, 'SUCCESS', 'Device Manager');
+        setDevices(prev => prev.map(d =>
+          d.id === device.id ? { ...d, status: 'ONLINE', lastPing: 'Just now' } : d
+        ));
+
+        // Auto-fetch logs after connection
+        // Wait 1s to allow device to close the test connection socket (ZK devices are often single-threaded)
+        await new Promise(r => setTimeout(r, 1000));
+
+        try {
+            const logsResult = await (window as any).api?.fetchLogs?.(
+                device.ipAddress,
+                Number(device.port),
+                device.name
+            );
+
+            if (logsResult?.imported > 0) {
+                addNotification(`Auto-fetched ${logsResult.imported} logs from ${device.name}`, 'SUCCESS', 'Device Manager');
+                refetchLogs();
+                await syncToERP(true);
+            } else {
+                addNotification(`Connected to ${device.name}, no new logs found.`, 'INFO', 'Device Manager');
+            }
+        } catch (e: any) {
+            console.error('Auto-fetch failed', e);
+            addNotification(`Auto-fetch failed: ${e.message || 'Unknown error'}`, 'WARNING', 'Device Manager');
+        }
+      } else {
+        throw new Error(result?.error || 'Connection timed out');
+      }
+    } catch (e: any) {
+      addNotification(`Failed to connect to ${device.name}: ${e.message}`, 'CRITICAL', 'Device Manager');
+      setDevices(prev => prev.map(d =>
+        d.id === device.id ? { ...d, status: 'OFFLINE', lastPing: 'Failed' } : d
+      ));
+    }
   };
 
   const renderContent = () => {
@@ -352,7 +447,7 @@ export default function Dashboard({ currentUser: username, logout }: DashboardPr
       case 'employees':
         return <EmployeeList />;
       case 'devices':
-        return <DeviceManager devices={devices} onAddDevice={handleAddDevice} onDeleteDevice={handleDeleteDevice} />;
+        return <DeviceManager devices={devices} onAddDevice={handleAddDevice} onDeleteDevice={handleDeleteDevice} onConnectDevice={handleConnectDevice} />;
       case 'logs':
         // Rewired props to match the new "Fetch" and "Push" buttons
         return <AccessLogList logs={checkIns} onImport={handleManualImport} onSync={handleForcePushToERP} />;

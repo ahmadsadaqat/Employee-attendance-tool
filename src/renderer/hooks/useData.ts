@@ -84,8 +84,12 @@ export const useDeviceLogs = (enabled: boolean = false) => {
             let totalImported = 0;
 
             for (const device of devices) {
-                const result = await (window as any).api.fetchLogs(device.ip, device.port);
-                if (result.imported) totalImported += result.imported;
+                try {
+                    const result = await (window as any).api.fetchLogs(device.ip, device.port);
+                    if (result.imported) totalImported += result.imported;
+                } catch (e) {
+                    console.error(`Failed to fetch from device ${device.name} (${device.ip}):`, e);
+                }
             }
             return totalImported;
         },
@@ -96,4 +100,15 @@ export const useDeviceLogs = (enabled: boolean = false) => {
     });
 
     return mutation;
+};
+
+// Hook for fetching local attendance from SQLite
+export const useLocalAttendance = (limit: number = 500) => {
+    return useQuery({
+        queryKey: ['localAttendance', limit],
+        queryFn: async () => {
+            return await (window as any).api.listAttendance(limit);
+        },
+        refetchInterval: 5000 // Poll frequently to show new logs immediately
+    });
 };
