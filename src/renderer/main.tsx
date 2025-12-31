@@ -163,11 +163,6 @@ function Login({ onUrlChange }: { onUrlChange: (url: string) => void }) {
         return
       }
 
-      // Update provider URL
-      onUrlChange(url)
-      // Force sync update for fetch patch to work immediately for the login request
-      ;(window as any).frappeRealUrl = url
-
       let result
       if (mode === 'token') {
           // Token Login
@@ -178,6 +173,10 @@ function Login({ onUrlChange }: { onUrlChange: (url: string) => void }) {
       }
 
       console.log('Login result:', result)
+
+      // Update provider URL only on success to avoid re-mounting component triggers
+      onUrlChange(url)
+      ;(window as any).frappeRealUrl = url
 
       // Force reload to ensure session/token is picked up and redirect happens
       window.location.reload()
@@ -196,7 +195,8 @@ function Login({ onUrlChange }: { onUrlChange: (url: string) => void }) {
           errorMessage = 'Server not found. Check the URL.'
         } else if (
           e.message.includes('NetworkError') ||
-          e.message.includes('fetch')
+          e.message.includes('fetch') ||
+          e.message.includes('net::ERR')
         ) {
           errorMessage = 'Network error. Check your connection and URL.'
         } else {

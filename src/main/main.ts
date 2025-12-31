@@ -375,51 +375,75 @@ app.whenReady().then(async () => {
       request.on('response', (response) => {
         console.log(`Main process: Login response status: ${response.statusCode}`)
 
-        if (response.statusCode !== 200) {
-          reject(new Error(`Login failed with status ${response.statusCode}`))
-          return
-        }
-
-        // Capture cookies
-        const cookies = response.headers['set-cookie']
-        let sid = ''
-        if (cookies) {
-          const cookieList = Array.isArray(cookies) ? cookies : [cookies]
-          cookieList.forEach(c => {
-            if (c.startsWith('sid=')) {
-              sid = c.split(';')[0].split('=')[1]
-            }
-          })
-        }
-
-        if (!sid) {
-          reject(new Error('Login successful but no session ID (sid) found'))
-          return
-        }
-
-        console.log('Main process: Captured Session ID (sid)')
-
-        const authData = { username, password, sid, mode: 'session' }
-        setupAuthInjection(url, authData)
-
+        // Collect body first, then decide
         let body = ''
         response.on('data', chunk => body += chunk)
-        response.on('end', async () => {
-          try {
-            const json = JSON.parse(body)
-            const data = JSON.stringify({ baseUrl: url, auth: authData })
 
-            if (safeStorage.isEncryptionAvailable()) {
-                const encrypted = safeStorage.encryptString(data)
-                store.set('erp-credentials', encrypted.toString('hex'))
-            } else {
-                store.set('erp-credentials', data)
+        response.on('end', async () => {
+             // 1. Handle Errors (Non-200)
+            if (response.statusCode !== 200) {
+                let msg = `Login failed with status ${response.statusCode}`
+                try {
+                    const json = JSON.parse(body)
+                    if (json.message) msg += `: ${json.message}`
+                    else if (json.exception) msg += `: ${json.exception}`
+                } catch {
+                    // Body might be HTML or empty
+                    if (response.statusCode === 404) msg = `Instance not found (404)`
+                    if (response.statusCode === 401) msg = `Invalid credentials (401)`
+                    if (response.statusCode === 403) msg = `Access denied (403)`
+                }
+                reject(new Error(msg))
+                return
             }
 
-            resolve({ ...json, sid })
-          } catch (e) {
-            reject(e)
-          }
+            // 2. Handle Success (200)
+            try {
+                // Determine SID either from Cookie or Body
+                let sid = ''
+
+                // Check Cookies
+                const cookies = response.headers['set-cookie']
+                if (cookies) {
+                  const cookieList = Array.isArray(cookies) ? cookies : [cookies]
+                  cookieList.forEach(c => {
+                    if (c.startsWith('sid=')) {
+                      sid = c.split(';')[0].split('=')[1]
+                    }
+                  })
+                }
+
+                // Parse Body
+                let json = {}
+                try { json = JSON.parse(body) } catch(e) {
+                    throw new Error('Invalid JSON response from server')
+                }
+
+                // Fallback: sometimes 'login' returns 'message': 'Logged In', but we need SID.
+                // If we didn't get SID from cookies, we can't really persist session cleanly.
+                if (!sid) {
+                  reject(new Error('Login successful but no session ID (sid) found in cookies'))
+                  return
+                }
+
+                console.log('Main process: Captured Session ID (sid)')
+
+                const authData = { username, password, sid, mode: 'session' }
+                setupAuthInjection(url, authData)
+
+                const data = JSON.stringify({ baseUrl: url, auth: authData })
+
+                if (safeStorage.isEncryptionAvailable()) {
+                    const encrypted = safeStorage.encryptString(data)
+                    store.set('erp-credentials', encrypted.toString('hex'))
+                } else {
+                    store.set('erp-credentials', data)
+                }
+
+                resolve({ ...json, sid })
+            } catch (e) {
+                reject(e)
+            }
         })
       })
 
