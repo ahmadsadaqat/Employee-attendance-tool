@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { FrappeApp } from 'frappe-js-sdk';
 
 // Helper to get the current Frappe client or constructed URL
@@ -34,7 +34,25 @@ const fetchDocList = async (doctype: string, filters?: any, fields?: string[], o
     });
 
     if (!response.ok) {
-        throw new Error(`Frappe fetch error: ${response.statusText}`);
+        // Handle 417 Expectation Failed as empty list (Server quirk)
+        if (response.status === 417) {
+            console.warn('Frappe API 417 (Expectation Failed) treated as empty list.');
+            return [];
+        }
+
+        let errorMessage = response.statusText;
+        try {
+            const errorJson = await response.json();
+            if (errorJson.exception) errorMessage = errorJson.exception;
+            else if (errorJson.message) errorMessage = errorJson.message;
+            else if (errorJson._server_messages) {
+                 const msgs = JSON.parse(errorJson._server_messages);
+                 errorMessage = msgs.map((m: any) => JSON.parse(m).message).join(', ');
+            }
+        } catch (e) {
+            // Failed to parse error JSON, fall back to statusText
+        }
+        throw new Error(`Frappe fetch error: ${errorMessage}`);
     }
 
     const json = await response.json();
