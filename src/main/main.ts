@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, safeStorage, session, net } from 'electron'
+import { app, BrowserWindow, ipcMain, safeStorage, session, net, Tray, Menu, nativeImage } from 'electron'
 import path from 'node:path'
 import Store from 'electron-store'
 import { FrappeApp } from 'frappe-js-sdk'
@@ -17,6 +17,9 @@ process.on('unhandledRejection', (err) => {
 })
 
 let win: BrowserWindow | null = null
+let tray: Tray | null = null // Must be global to prevent garbage collection
+let isQuitting = false
+
 const store = new Store()
 
 ipcMain.on('log', (_event, level, ...args) => {
@@ -78,10 +81,49 @@ function setupAuthInjection(baseUrl: string, auth: { mode?: string, sid?: string
   console.log(`Main process: Auth injection enabled for ${baseUrl} [Mode: ${auth.mode || 'session'}]`)
 }
 
+function createTray() {
+  const iconPath = path.join(process.cwd(), 'nexo.ico');
+  const trayIcon = nativeImage.createFromPath(iconPath);
+
+  tray = new Tray(trayIcon);
+
+  const contextMenu = Menu.buildFromTemplate([
+    {
+      label: 'Show App',
+      click: () => {
+        win?.show();
+      }
+    },
+    {
+      label: 'Quit',
+      click: () => {
+        isQuitting = true;
+        app.quit();
+      }
+    }
+  ]);
+
+  tray.setToolTip('Nexo Employees');
+  tray.setContextMenu(contextMenu);
+
+  tray.on('click', () => {
+    if (win?.isVisible()) {
+      win.hide();
+    } else {
+      win?.show();
+    }
+  });
+}
+
 function createWindow() {
+  const iconPath = path.join(process.cwd(), 'nexo.ico');
+
   win = new BrowserWindow({
     width: 1100,
     height: 720,
+    minWidth: 800,
+    minHeight: 600,
+    icon: iconPath,
     show: false, // Don't show until ready
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
@@ -94,6 +136,15 @@ function createWindow() {
   win.once('ready-to-show', () => {
     win?.show()
   })
+
+  // Prevent closing, hide instead
+  win.on('close', (event) => {
+    if (!isQuitting) {
+      event.preventDefault();
+      win?.hide();
+      return false;
+    }
+  });
 
   // Restore session if available
   getCredentials().then(creds => {
@@ -125,6 +176,7 @@ app.whenReady().then(async () => {
   await Database.init(initialCreds?.baseUrl)
 
   createWindow()
+  createTray()
 
   console.log('Main process: Window created, IPC handlers registered')
 
@@ -556,5 +608,6 @@ app.whenReady().then(async () => {
 }) // End of app.whenReady
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit()
+  // Do NOT quit here
+  // if (process.platform !== 'darwin') app.quit()
 })
