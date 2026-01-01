@@ -143,6 +143,12 @@ app.whenReady().then(async () => {
     return ZKClient.testConnection(ip, port)
   })
 
+  ipcMain.handle('data:cleanup', async (_, days: number) => {
+    const creds = await getCredentials()
+    const count = Database.deleteOldLogs(days, creds?.baseUrl)
+    return count
+  })
+
   // Device CRUD
   ipcMain.handle('device:add', async (_e, d: { name: string, ip: string, port: number, commKey?: string, useUdp?: boolean }) => {
     const creds = await getCredentials()

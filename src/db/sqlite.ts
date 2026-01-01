@@ -145,6 +145,25 @@ export class Database {
     return this.db.prepare('SELECT * FROM devices WHERE id=?').get(id) as Device | undefined
   }
 
+  static deleteOldLogs(days: number, instanceUrl?: string): number {
+    if (instanceUrl) {
+       // Delete logs linked to devices of this instance
+       const info = this.db.prepare(`
+         DELETE FROM attendance
+         WHERE timestamp < date('now', '-' || ? || ' days')
+         AND device_id IN (SELECT id FROM devices WHERE instance_url = ?)
+       `).run(days, instanceUrl);
+       return info.changes;
+    }
+
+    // Global delete (fallback)
+    const info = this.db.prepare(`
+      DELETE FROM attendance
+      WHERE timestamp < date('now', '-' || ? || ' days')
+    `).run(days);
+    return info.changes;
+  }
+
   static deleteDevice(id: number) {
     // Remove dependent attendance rows first to satisfy FK constraint
     this.db.prepare('DELETE FROM attendance WHERE device_id=?').run(id)
