@@ -1,16 +1,45 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useFrappeDocList } from '../hooks/useData';
 import { Employee } from '../types';
-import { Clock, Calendar, Mail, Loader2 } from 'lucide-react';
+import { Clock, Calendar, Mail, Loader2, Search, ChevronLeft, ChevronRight } from 'lucide-react';
 
 export const EmployeeList: React.FC = () => {
+  const [searchTerm, setSearchTerm] = useState('');
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
+  const [page, setPage] = useState(0);
+  const [limit] = useState(20);
+
+  // Debounce search term
+  React.useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedSearchTerm(searchTerm);
+    }, 500);
+    return () => clearTimeout(handler);
+  }, [searchTerm]);
+
+  // Construct filters based on search term
+  // If term looks like an ID (contains numbers), search 'name' OR 'employee_name' if we could,
+  // but standard API is limited. Let's try name search primarily.
+  // Ideally, we'd use `or_filters` but let's stick to simple filters for now as per useData.
+  const filters = debouncedSearchTerm
+    ? [['employee_name', 'like', `%${debouncedSearchTerm}%`]]
+    : [];
+
   const { data: employeesData, isLoading: employeesLoading, error: employeesError } = useFrappeDocList('Employee', {
-    fields: ['name', 'employee_name', 'department', 'designation', 'status', 'image', 'default_shift']
+    fields: ['name', 'employee_name', 'department', 'designation', 'status', 'image', 'default_shift'],
+    filters: filters,
+    limit: limit,
+    page: page
   });
 
   const { data: shiftsData, isLoading: shiftsLoading } = useFrappeDocList('Shift Type', {
     fields: ['name', 'start_time', 'end_time']
   });
+
+  // Reset page when search changes
+  React.useEffect(() => {
+    setPage(0);
+  }, [debouncedSearchTerm]);
 
   if (employeesLoading || shiftsLoading) {
     return (
@@ -44,7 +73,11 @@ export const EmployeeList: React.FC = () => {
   }
 
   const employees: Employee[] = (employeesData || [])
-    .filter((doc: any) => doc.status === 'Active')
+    // .filter((doc: any) => doc.status === 'Active') // Let backend filter status if needed, or filter here.
+    // Usually better to show all searched, or default to Active. Let's keep existing behavior but beware of pagination.
+    // If we client-side filter result of paginated query, we might show empty pages.
+    // Ideally we should add ['status', '=', 'Active'] to filters if that's the requirement.
+    // For now, let's assume we want to see all matched employees.
     .map((doc: any) => {
       const shiftDetails = doc.default_shift ? shiftMap.get(doc.default_shift) : null;
       return {
@@ -57,15 +90,29 @@ export const EmployeeList: React.FC = () => {
         shiftStart: shiftDetails?.start || '09:00',
         shiftEnd: shiftDetails?.end || '17:00',
         avatar: doc.image ? (doc.image.startsWith('http') ? doc.image : `${(window as any).frappeBaseUrl}${doc.image}`) : `https://ui-avatars.com/api/?name=${encodeURIComponent(doc.employee_name)}&background=random`,
-        status: 'ACTIVE'
+        status: doc.status || 'ACTIVE' // Use doc status
       };
     });
 
   return (
     <div className="space-y-6">
-       <div>
-           <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100">Employees</h2>
-           <p className="text-sm text-slate-500 dark:text-slate-400">Personnel directory and shift assignments</p>
+       <div className='flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4'>
+           <div>
+               <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100">Employees</h2>
+               <p className="text-sm text-slate-500 dark:text-slate-400">Personnel directory and shift assignments</p>
+           </div>
+
+           {/* Local Search Input */}
+           <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+              <input
+                type="text"
+                placeholder="Search by name..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-9 pr-4 py-2 rounded-lg border border-slate-200 dark:border-slate-600 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm w-64 bg-white dark:bg-slate-800 dark:text-white"
+              />
+           </div>
        </div>
 
        <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
@@ -82,7 +129,7 @@ export const EmployeeList: React.FC = () => {
              {employees.length === 0 ? (
                <tr>
                  <td colSpan={4} className="px-6 py-8 text-center text-slate-500">
-                   No employees found
+                   {searchTerm ? 'No employees matching search' : 'No employees found'}
                  </td>
                </tr>
              ) : (
@@ -119,11 +166,11 @@ export const EmployeeList: React.FC = () => {
                    </td>
                    <td className="px-6 py-4">
                      <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold ${
-                       emp.status === 'ACTIVE'
+                       (emp.status || '').toUpperCase() === 'ACTIVE'
                          ? 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-800'
                          : 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-600'
                      }`}>
-                       <span className={`w-1.5 h-1.5 rounded-full ${emp.status === 'ACTIVE' ? 'bg-emerald-500' : 'bg-slate-400'}`}></span>
+                       <span className={`w-1.5 h-1.5 rounded-full ${(emp.status || '').toUpperCase() === 'ACTIVE' ? 'bg-emerald-500' : 'bg-slate-400'}`}></span>
                        {emp.status}
                      </span>
                    </td>
@@ -132,7 +179,31 @@ export const EmployeeList: React.FC = () => {
              )}
            </tbody>
          </table>
+
+         {/* Pagination Controls */}
+         <div className="bg-slate-50 dark:bg-slate-900/50 border-t border-slate-200 dark:border-slate-700 px-6 py-3 flex items-center justify-between">
+            <div className="text-xs text-slate-500 dark:text-slate-400">
+                Page {page + 1} (Top {limit} results)
+            </div>
+            <div className="flex gap-2">
+                <button
+                    onClick={() => setPage(p => Math.max(0, p - 1))}
+                    disabled={page === 0}
+                    className="p-1.5 rounded-md hover:bg-white dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-slate-600 dark:text-slate-300 border border-transparent hover:border-slate-200 dark:hover:border-slate-600"
+                >
+                    <ChevronLeft size={16} />
+                </button>
+                <button
+                    onClick={() => setPage(p => p + 1)}
+                    disabled={employees.length < limit}
+                    className="p-1.5 rounded-md hover:bg-white dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-slate-600 dark:text-slate-300 border border-transparent hover:border-slate-200 dark:hover:border-slate-600"
+                >
+                    <ChevronRight size={16} />
+                </button>
+            </div>
+         </div>
        </div>
     </div>
   );
 };
+

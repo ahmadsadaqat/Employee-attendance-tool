@@ -24,7 +24,7 @@ export interface Employee {
   shiftStart: string;
   shiftEnd: string;
   avatar: string;
-  status: 'ACTIVE';
+  status: string;
 }
 
 export interface User {

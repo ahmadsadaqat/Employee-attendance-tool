@@ -69,15 +69,20 @@ export const useFrappeDocList = (doctype: string, options?: {
     fields?: string[],
     orderBy?: { field: string, order: 'desc' | 'asc' },
     limit?: number,
+    page?: number, // Offset
     enabled?: boolean,
     refetchInterval?: number
 }) => {
     // Include URL in key to force refetch on switch
     const currentUrl = (window as any).frappeBaseUrl || '';
 
+    // Calculate limit_start from page (0-based) and limit
+    const limit = options?.limit || 20;
+    const start = (options?.page || 0) * limit;
+
     return useQuery({
-        queryKey: ['frappe', currentUrl, doctype, options?.filters, options?.limit],
-        queryFn: () => fetchDocList(doctype, options?.filters, options?.fields, options?.orderBy, 0, options?.limit),
+        queryKey: ['frappe', currentUrl, doctype, options?.filters, limit, start],
+        queryFn: () => fetchDocList(doctype, options?.filters, options?.fields, options?.orderBy, start, limit),
         enabled: options?.enabled !== false,
         refetchInterval: options?.refetchInterval
     });
