@@ -82,8 +82,11 @@ function setupAuthInjection(baseUrl: string, auth: { mode?: string, sid?: string
   console.log(`Main process: Auth injection enabled for ${baseUrl} [Mode: ${auth.mode || 'session'}]`)
 }
 
+// function getIconPath() { ... } // Removed
+
 function createTray() {
-  const iconPath = path.join(process.cwd(), 'nexo.ico');
+  const isWin = process.platform === 'win32';
+  const iconPath = path.join(process.cwd(), isWin ? 'assets/nexo-32x32.ico' : 'assets/nexo-32x32.png');
   const trayIcon = nativeImage.createFromPath(iconPath);
 
   tray = new Tray(trayIcon);
@@ -117,7 +120,8 @@ function createTray() {
 }
 
 function createWindow() {
-  const iconPath = path.join(process.cwd(), 'nexo.ico');
+  const isWin = process.platform === 'win32';
+  const iconPath = path.join(process.cwd(), isWin ? 'assets/nexo-256x256.ico' : 'assets/nexo-64x64.png');
 
   win = new BrowserWindow({
     width: 1100,
@@ -137,6 +141,7 @@ function createWindow() {
   win.once('ready-to-show', () => {
     win?.show()
   })
+
 
   // Prevent closing, hide instead
   win.on('close', (event) => {
