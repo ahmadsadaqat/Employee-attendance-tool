@@ -193,7 +193,7 @@ export class Database {
     tx(ids)
   }
 
-  static getUnsynced(instanceUrl?: string): Attendance[] & { id: number }[] {
+  static getUnsynced(limit = 100, instanceUrl?: string): Attendance[] & { id: number }[] {
     if (instanceUrl) {
          return this.db
         .prepare(`
@@ -201,12 +201,13 @@ export class Database {
             JOIN devices d ON a.device_id = d.id
             WHERE a.synced=0 AND d.instance_url = ?
             ORDER BY a.timestamp ASC
+            LIMIT ?
         `)
-        .all(instanceUrl) as any
+        .all(instanceUrl, limit) as any
     }
     return this.db
-      .prepare('SELECT * FROM attendance WHERE synced=0 ORDER BY timestamp ASC')
-      .all() as any
+      .prepare('SELECT * FROM attendance WHERE synced=0 ORDER BY timestamp ASC LIMIT ?')
+      .all(limit) as any
   }
 
   static getStats(instanceUrl?: string) {

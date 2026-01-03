@@ -74,4 +74,7 @@ export interface AppSettings {
   alertThreshold: 'LOW' | 'MEDIUM' | 'HIGH';
   darkMode: boolean;
   retentionDays: number;
+  supabaseUrl?: string;
+  supabaseKey?: string;
+  cloudSyncInterval?: number; // Seconds, default 60
 }

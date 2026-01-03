@@ -543,6 +543,10 @@ declare global {
         port: number,
         opts?: { commKey?: string; useUdp?: boolean }
       ) => Promise<{ id: number }>
+      getSupabaseConfig: () => Promise<{ url: string; key: string } | null>
+      testSupabase: () => Promise<boolean>
+      syncSupabase: () => Promise<{ success: boolean; count?: number; error?: string }>
+      setSupabaseInterval: (seconds: number) => Promise<boolean>
       removeDevice: (id: number) => Promise<void>
       runSync: () => Promise<{ synced: number; errors: string[] }>
       setCredentials: (baseUrl: string, auth: any) => Promise<void>

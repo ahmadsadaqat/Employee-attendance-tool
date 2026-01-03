@@ -129,7 +129,7 @@ export default function Dashboard({ currentUser: username, logout }: DashboardPr
     autoSync: true,
     emailNotifications: true,
     alertThreshold: 'MEDIUM',
-    darkMode: false,
+    darkMode: true,
     retentionDays: 30
   });
 
@@ -228,7 +228,7 @@ export default function Dashboard({ currentUser: username, logout }: DashboardPr
             timestamp: isLocal ? log.timestamp : log.time,
             device: isLocal ? (devices.find(d => d.id === String(log.device_id))?.name || `Device ${log.device_id}`) : (log.device_id || 'Unknown Device'),
             location: 'Main Office',
-            type: (isLocal ? log.status : log.log_type) === 'IN' ? 'CHECK_IN' : 'CHECK_OUT',
+            type: ['IN', 'In', 'CHECK IN', 'Check In'].includes(isLocal ? log.status : log.log_type) ? 'CHECK_IN' : 'CHECK_OUT',
             avatar: empInfo.avatar,
             syncedToErp: isLocal ? (log.synced === 1) : true // Frappe logs are by definition synced
           };

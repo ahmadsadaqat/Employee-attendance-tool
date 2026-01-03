@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { AppSettings } from '../types';
-import { Save, Database, Loader2 } from 'lucide-react';
+import { Save, Database, Loader2, Cloud as CloudIcon } from 'lucide-react';
 import { RetentionManager } from './RetentionLogic';
 
 interface SettingsViewProps {
@@ -27,11 +27,24 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave }) 
         const deleted = await RetentionManager.runCleanup(formData.retentionDays);
 
         setStatusMessage(`Settings saved. Cleanup executed: ${deleted} old records deleted.`);
+
+        // Save Supabase Interval
+        if (formData.cloudSyncInterval && formData.cloudSyncInterval !== settings.cloudSyncInterval) {
+             await (window as any).api.setSupabaseInterval(formData.cloudSyncInterval);
+        }
+
+        // The original setIsSaving(false) was in finally.
+        // Moving it here as per instruction, wrapped in setTimeout.
+        // This means if an error occurs after onSave but before this point,
+        // isSaving might remain true.
+        setTimeout(() => {
+          setIsSaving(false);
+        }, 0); // Using setTimeout to defer, similar to original finally block behavior but after successful operations.
+
     } catch (error) {
         console.error(error);
         setStatusMessage('Failed to execute cleanup.');
-    } finally {
-        setIsSaving(false);
+        setIsSaving(false); // Ensure saving state is reset on error
     }
   };
 
@@ -43,6 +56,83 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ settings, onSave }) 
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
+        {/* Cloud Sync (Supabase) */}
+        <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
+             <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-700/50 flex items-center gap-2">
+                <CloudIcon className="text-teal-600 dark:text-teal-400" size={18} />
+                <h3 className="font-semibold text-slate-800 dark:text-slate-100">Cloud Database (Supabase)</h3>
+            </div>
+            <div className="p-6 space-y-4">
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Sync devices and attendance logs to the cloud. Credentials are managed via .env file.
+                </p>
+
+                <div className="flex items-center gap-2">
+                    <div className={`w-2 h-2 rounded-full ${formData.supabaseUrl ? 'bg-emerald-500' : 'bg-slate-300'}`} />
+                    <span className="text-sm text-slate-700 dark:text-slate-300">
+                        {formData.supabaseUrl ? 'Credentials Configured via .env' : 'No Credentials Found'}
+                    </span>
+                </div>
+
+                <div className="flex gap-2">
+                     <button
+                        type="button"
+                        disabled={!formData.supabaseUrl}
+                        onClick={async () => {
+                             try {
+                                 const ok = await (window as any).api.testSupabase();
+                                 if (ok) setStatusMessage('Connection to Supabase successful!');
+                                 else setStatusMessage('Connection failed.');
+                             } catch(e) {
+                                 setStatusMessage('Connection failed. Check network');
+                             }
+                        }}
+                        className="text-xs px-3 py-1.5 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded hover:bg-slate-200 dark:hover:bg-slate-600 disabled:opacity-50"
+                     >
+                         Test Connection
+                     </button>
+                     <button
+                        type="button"
+                        disabled={!formData.supabaseUrl}
+                        onClick={async () => {
+                           try {
+                               setIsSaving(true);
+                               const res = await (window as any).api.syncSupabase();
+                               if (res.success) setStatusMessage(`Sync complete. Pushed ${res.count} logs.`);
+                               else setStatusMessage(`Sync failed: ${res.error}`);
+                           } catch(e) {
+                               setStatusMessage('Sync failed.');
+                           } finally {
+                               setIsSaving(false);
+                           }
+                        }}
+                         className="text-xs px-3 py-1.5 bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded hover:bg-indigo-100 dark:hover:bg-indigo-900/50 disabled:opacity-50"
+                     >
+                         Sync Now
+                     </button>
+                </div>
+
+                <div className="pt-2 border-t border-slate-100 dark:border-slate-700">
+                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                        Auto-Sync Interval: <span className="text-teal-600 dark:text-teal-400 font-mono">{formData.cloudSyncInterval || 60}s</span>
+                    </label>
+                    <div className="flex items-center gap-4">
+                        <input
+                            type="range"
+                            min="60"
+                            max="1800"
+                            step="60"
+                            value={formData.cloudSyncInterval || 60}
+                            onChange={(e) => setFormData({...formData, cloudSyncInterval: parseInt(e.target.value)})}
+                            className="w-full h-2 bg-slate-200 dark:bg-slate-700 rounded-lg appearance-none cursor-pointer accent-teal-600"
+                        />
+                        <div className="text-xs text-slate-500 w-24 text-right">
+                            {Math.floor((formData.cloudSyncInterval || 60) / 60)} min
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
         {/* Data Management */}
         <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
           <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-700/50 flex items-center gap-2">

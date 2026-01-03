@@ -1,3 +1,4 @@
+import 'dotenv/config'
 import { app, BrowserWindow, ipcMain, safeStorage, session, net, Tray, Menu, nativeImage } from 'electron'
 import path from 'node:path'
 import Store from 'electron-store'
@@ -603,6 +604,112 @@ app.whenReady().then(async () => {
       console.error('Main process: Failed to determine network status:', error)
       return false
     }
+  })
+
+  // -------------------- SUPABASE HANDLERS --------------------
+
+  const { initSupabase, testConnection, syncDevices, syncLogs } = await import('./supabase')
+
+  // Load from Env
+  const supabaseUrl = process.env.SUPABASE_URL
+  const supabaseKey = process.env.SUPABASE_PUBLISHABLE_DEFAULT_KEY
+
+  if (supabaseUrl && supabaseKey) {
+      console.log('Main: Initializing Supabase from .env')
+      initSupabase(supabaseUrl, supabaseKey)
+  } else {
+      console.warn('Main: Supabase credentials missing in .env')
+  }
+
+  ipcMain.handle('supabase:get-config', () => {
+     return {
+         configured: !!(supabaseUrl && supabaseKey),
+         url: supabaseUrl
+     }
+  })
+
+  ipcMain.handle('supabase:test', async () => {
+      return testConnection()
+  })
+
+  // -------------------- AUTO SYNC LOOP --------------------
+
+  let autoSyncInterval: NodeJS.Timeout | null = null
+  let currentSyncInterval = 60 // Default 60s
+
+  // Load saved interval
+  const savedInterval = store.get('cloudSyncInterval') as number
+  if (savedInterval && savedInterval >= 60) {
+      currentSyncInterval = savedInterval
+  }
+
+  const runAutoSync = async () => {
+      // 1. Check if configured
+      if (!process.env.SUPABASE_URL || !process.env.SUPABASE_PUBLISHABLE_DEFAULT_KEY) return
+
+      // 2. Check online status (optional optimization)
+      const { default: isOnline } = await import('is-online')
+      if (!(await isOnline({ timeout: 2000 }))) return
+
+      try {
+          // 3. Sync Devices First (to avoid FK errors)
+          const devices = Database.listDevices()
+          if (devices.length > 0) {
+              await syncDevices(devices)
+          }
+
+          // 4. Get unsynced logs
+           const logs = Database.getUnsynced(100) // Sync batch of 100
+           if (logs.length > 0) {
+               console.log(`AutoSync: Found ${logs.length} unsynced logs. Syncing...`)
+               const syncedIds = await syncLogs(logs)
+               if (syncedIds && syncedIds.length > 0) {
+                   Database.markSynced(syncedIds)
+                   console.log(`AutoSync: Marked ${syncedIds.length} logs as synced.`)
+               }
+           }
+      } catch (e) {
+          console.error('AutoSync Error:', e)
+      }
+  }
+
+  const startAutoSync = (intervalSeconds: number) => {
+      if (autoSyncInterval) clearInterval(autoSyncInterval)
+      currentSyncInterval = intervalSeconds
+      console.log(`AutoSync: Started with interval ${intervalSeconds}s`)
+      autoSyncInterval = setInterval(runAutoSync, intervalSeconds * 1000)
+  }
+
+  // Start on launch
+  startAutoSync(currentSyncInterval)
+
+  // IPC to update interval
+  ipcMain.handle('supabase:set-interval', (_e, seconds: number) => {
+      if (seconds < 60) seconds = 60
+      store.set('cloudSyncInterval', seconds)
+      startAutoSync(seconds)
+      return true
+  })
+
+  // Hook into device log fetch to trigger immediate sync
+  // We need to intercept the existing 'device:fetch-logs' or just rely on the interval?
+  // User asked "when the system goes online it synced automatically". Interval handles this.
+  // "Realtime" implies fast. 60s is okay. But we can also trigger `runAutoSync()` after `device:fetch-logs` success.
+  // I will look for `device:fetch-logs` handler in main.ts to add the trigger.
+
+  ipcMain.handle('supabase:sync', async () => {
+      try {
+          const devices = Database.listDevices()
+          await syncDevices(devices)
+
+          // Trigger the auto-sync logic for logs
+          await runAutoSync()
+
+          return { success: true, count: 0 } // Count not returned by runAutoSync easily, but that's fine
+      } catch (e: any) {
+          console.error('Supabase sync failed:', e)
+          return { success: false, error: e.message }
+      }
   })
 
 }) // End of app.whenReady

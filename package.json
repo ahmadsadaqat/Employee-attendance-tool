@@ -8,16 +8,18 @@
   "author": "",
   "license": "MIT",
   "scripts": {
-  "dev": "concurrently -k \"node scripts/build-electron.mjs --watch\" \"vite\" \"wait-on tcp:5173 && cross-env VITE_DEV_SERVER=true electron .\"",
-  "build": "node scripts/build-electron.mjs && vite build && electron-builder",
-  "build:win": "node scripts/build-electron.mjs && vite build && electron-builder --win",
-  "build:app": "vite build",
-  "lint": "echo 'no linter configured'",
-  "postinstall": "electron-builder install-app-deps"
-},
+    "dev": "concurrently -k \"node scripts/build-electron.mjs --watch\" \"vite\" \"wait-on tcp:5173 && cross-env VITE_DEV_SERVER=true electron .\"",
+    "build": "node scripts/build-electron.mjs && vite build && electron-builder",
+    "build:win": "node scripts/build-electron.mjs && vite build && electron-builder --win",
+    "build:app": "vite build",
+    "lint": "echo 'no linter configured'",
+    "postinstall": "electron-builder install-app-deps"
+  },
   "dependencies": {
+    "@supabase/supabase-js": "^2.89.0",
     "@tanstack/react-query": "^5.90.12",
     "better-sqlite3": "^11.10.0",
+    "dotenv": "^17.2.3",
     "electron-store": "^8.1.0",
     "frappe-react-sdk": "^1.12.0",
     "is-online": "^12.0.1",
@@ -48,32 +50,36 @@
     "wait-on": "^8.0.5"
   },
   "build": {
-  "appId": "com.nexo.employees",
-  "icon": "build/icon.png",
-  "files": [
+    "appId": "com.nexo.employees",
+    "icon": "build/icon.png",
+    "files": [
       "**/*",
       "!**/*.ts",
       "!**/*.tsx",
       "!src/**",
       "dist/**/*",
       "dist-electron/**/*"
-  ],
-  "asarUnpack": [
-    "**/*.node"
-  ],
-  "extraResources": [
-    {
-      "from": "data/",
-      "to": "data/",
-      "filter": ["**/*"]
-    }
-  ],
-  "win": {
-    "target": ["portable"],
-    "artifactName": "nexo-employees_${version}_${arch}.${ext}"
-  },
-  "npmRebuild": false,
-  "buildDependenciesFromSource": false,
-  "nodeGypRebuild": false
-}
+    ],
+    "asarUnpack": [
+      "**/*.node"
+    ],
+    "extraResources": [
+      {
+        "from": "data/",
+        "to": "data/",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "win": {
+      "target": [
+        "portable"
+      ],
+      "artifactName": "nexo-employees_${version}_${arch}.${ext}"
+    },
+    "npmRebuild": false,
+    "buildDependenciesFromSource": false,
+    "nodeGypRebuild": false
+  }
 }
