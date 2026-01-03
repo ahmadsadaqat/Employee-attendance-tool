@@ -12,15 +12,15 @@ interface AlertsModalProps {
 
 export const AlertsModal: React.FC<AlertsModalProps> = ({ isOpen, onClose, alerts, onClearAll }) => {
   // Use a transition effect for the drawer
-  const drawerClasses = isOpen 
-    ? "translate-x-0" 
+  const drawerClasses = isOpen
+    ? "translate-x-0"
     : "translate-x-full";
 
   return (
     <>
       {/* Backdrop */}
       {isOpen && (
-        <div 
+        <div
           className="fixed inset-0 bg-black/20 backdrop-blur-sm z-40 transition-opacity"
           onClick={onClose}
         />
@@ -38,14 +38,14 @@ export const AlertsModal: React.FC<AlertsModalProps> = ({ isOpen, onClose, alert
             </div>
             <div className="flex gap-2">
                 {alerts.length > 0 && (
-                    <button 
+                    <button
                         onClick={onClearAll}
                         className="text-xs text-slate-500 dark:text-slate-400 hover:text-red-500 dark:hover:text-red-400 font-medium px-2 py-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
                     >
                         Clear All
                     </button>
                 )}
-                <button 
+                <button
                     onClick={onClose}
                     className="p-1 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-full transition-colors text-slate-500 dark:text-slate-400"
                 >
@@ -66,7 +66,7 @@ export const AlertsModal: React.FC<AlertsModalProps> = ({ isOpen, onClose, alert
                </div>
             ) : (
               alerts.sort((a,b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()).map((alert) => (
-                <div 
+                <div
                   key={alert.id}
                   className={`p-3 rounded-lg border flex gap-3 animate-fade-in ${
                     alert.severity === 'CRITICAL' ? 'bg-red-50 dark:bg-red-900/20 border-red-100 dark:border-red-900' :
@@ -83,7 +83,7 @@ export const AlertsModal: React.FC<AlertsModalProps> = ({ isOpen, onClose, alert
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex justify-between items-start mb-0.5">
-                      <p className={`text-sm font-semibold truncate pr-2 ${
+                      <p className={`text-sm font-semibold pr-2 ${
                           alert.severity === 'CRITICAL' ? 'text-red-800 dark:text-red-200' :
                           alert.severity === 'WARNING' ? 'text-amber-800 dark:text-amber-200' :
                           alert.severity === 'SUCCESS' ? 'text-emerald-800 dark:text-emerald-200' :
@@ -93,7 +93,7 @@ export const AlertsModal: React.FC<AlertsModalProps> = ({ isOpen, onClose, alert
                         {new Date(alert.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
                       </span>
                     </div>
-                    <p className="text-xs text-slate-600 dark:text-slate-400 truncate">{alert.source}</p>
+                    <p className="text-xs text-slate-600 dark:text-slate-400">{alert.source}</p>
                   </div>
                 </div>
               ))

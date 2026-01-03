@@ -68,34 +68,14 @@ const generateMockCheckIns = (count: number): CheckInRecord[] => {
    }).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 };
 
-const mockEmployees: Employee[] = [
-  { id: '1', employeeId: 'EMP-1000', name: 'Alice Johnson', role: 'Senior Engineer', department: 'Engineering', shiftName: 'Standard Day', shiftStart: '09:00', shiftEnd: '17:00', avatar: 'https://picsum.photos/seed/205/100/100', status: 'ACTIVE' },
-  { id: '2', employeeId: 'EMP-1001', name: 'Bob Smith', role: 'Sales Manager', department: 'Sales', shiftName: 'Standard Day', shiftStart: '09:00', shiftEnd: '17:00', avatar: 'https://picsum.photos/seed/206/100/100', status: 'ACTIVE' },
-  { id: '3', employeeId: 'EMP-1002', name: 'Charlie Brown', role: 'Warehouse Lead', department: 'Operations', shiftName: 'Early Bird', shiftStart: '06:00', shiftEnd: '14:00', avatar: 'https://picsum.photos/seed/207/100/100', status: 'ACTIVE' },
-  { id: '4', employeeId: 'EMP-1003', name: 'Diana Prince', role: 'HR Specialist', department: 'HR', shiftName: 'Standard Day', shiftStart: '08:30', shiftEnd: '16:30', avatar: 'https://picsum.photos/seed/208/100/100', status: 'ACTIVE' },
-  { id: '5', employeeId: 'EMP-1004', name: 'Evan Wright', role: 'Marketing Lead', department: 'Marketing', shiftName: 'Standard Day', shiftStart: '09:00', shiftEnd: '17:00', avatar: 'https://picsum.photos/seed/209/100/100', status: 'ACTIVE' },
-];
-
-const mockDevices: Device[] = [
-  { id: 'd1', name: 'Main Entrance Bio-1', location: 'Lobby', status: 'ONLINE', lastPing: 'Just now', type: 'BIOMETRIC', ipAddress: '192.168.1.10', port: '4370' },
-  { id: 'd2', name: 'Warehouse Gate A', location: 'Zone B', status: 'ONLINE', lastPing: '2s ago', type: 'RFID', ipAddress: '192.168.1.12', port: '8080' },
-  { id: 'd3', name: 'Server Room Bio', location: 'Secure Zone', status: 'MAINTENANCE', lastPing: '2h ago', type: 'BIOMETRIC', ipAddress: '192.168.1.15', port: '4370' },
-  { id: 'd4', name: 'Parking Barrier', location: 'B1', status: 'OFFLINE', lastPing: '5m ago', type: 'GATE', ipAddress: '192.168.1.20', port: '80' },
-];
-
-const mockAlerts: SystemAlert[] = [
-  { id: 'a1', severity: 'CRITICAL', message: "Device 'Parking Barrier' is OFFLINE", source: 'System Monitor', timestamp: new Date(Date.now() - 1000 * 60 * 5).toISOString() },
-  { id: 'a2', severity: 'WARNING', message: "High latency detected on Warehouse Gate A", source: 'Network', timestamp: new Date(Date.now() - 1000 * 60 * 30).toISOString() },
-];
-
 const chartData = [
-  { time: '06:00', count: 2 },
-  { time: '07:00', count: 15 },
-  { time: '08:00', count: 85 },
-  { time: '09:00', count: 124 },
-  { time: '10:00', count: 132 },
-  { time: '11:00', count: 135 },
-  { time: '12:00', count: 135 },
+  { time: '06:00', count: 0 },
+  { time: '08:00', count: 0 },
+  { time: '10:00', count: 0 },
+  { time: '12:00', count: 0 },
+  { time: '14:00', count: 0 },
+  { time: '16:00', count: 0 },
+  { time: '18:00', count: 0 },
 ];
 
 interface DashboardProps {
@@ -104,13 +84,24 @@ interface DashboardProps {
 }
 
 export default function Dashboard({ currentUser: username, logout }: DashboardProps) {
+  // Fetch logged in user details
+  const { data: userDocs } = useFrappeDocList('User', {
+    filters: [['name', '=', username || 'Administrator']],
+    fields: ['first_name', 'email', 'user_image', 'role_profile_name'],
+    limit: 1
+  });
+
+  const fetchedUser = userDocs?.[0];
+
   // Construct user object from prop
   const currentUser: User = {
-    id: 'usr-1',
-    name: username || 'Administrator',
-    email: 'admin@nexo.com',
+    id: username || 'usr-1',
+    name: fetchedUser?.first_name || 'Administrator',
+    email: fetchedUser?.email || 'Administrator',
     role: 'System Administrator',
-    avatar: 'https://i.pravatar.cc/150?u=a042581f4e29026704d',
+    avatar: fetchedUser?.user_image
+      ? ((window as any).frappeBaseUrl + fetchedUser.user_image)
+      : 'https://i.pravatar.cc/150?u=a042581f4e29026704d',
     lastLogin: new Date().toISOString()
   };
 
@@ -121,14 +112,14 @@ export default function Dashboard({ currentUser: username, logout }: DashboardPr
   // App State
   const [checkIns, setCheckIns] = useState<CheckInRecord[]>([]);
   const [devices, setDevices] = useState<Device[]>([]);
-  const [alerts, setAlerts] = useState<SystemAlert[]>(mockAlerts);
+  const [alerts, setAlerts] = useState<SystemAlert[]>([]);
   const [isAlertsModalOpen, setIsAlertsModalOpen] = useState(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [lastCheckIn, setLastCheckIn] = useState<CheckInRecord | null>(null);
 
   const [stats, setStats] = useState<DailyStats>({
     totalEmployees: 150,
-    exceptions: mockAlerts.length,
+    exceptions: 0,
     uptime: 98.5
   });
 

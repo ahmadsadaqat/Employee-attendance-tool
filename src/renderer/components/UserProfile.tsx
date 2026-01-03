@@ -41,8 +41,8 @@ export const UserProfile: React.FC<UserProfileProps> = ({ user, onLogout }) => {
                 <Camera size={14} />
               </button>
             </div>
-            
-            <button 
+
+            <button
               onClick={onLogout}
               className="flex items-center gap-2 px-4 py-2 bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 rounded-lg text-sm font-medium hover:bg-red-100 dark:hover:bg-red-900/40 transition-colors border border-red-100 dark:border-red-900/30 shadow-sm"
             >
@@ -78,41 +78,33 @@ export const UserProfile: React.FC<UserProfileProps> = ({ user, onLogout }) => {
               </div>
               <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">Account Details</h3>
             </div>
-            
+
             <div className="space-y-5">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                 <div>
                   <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">Full Name</label>
-                  <input 
-                    type="text" 
-                    value={user.name} 
+                  <input
+                    type="text"
+                    value={user.name}
                     readOnly
                     className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-700 dark:text-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/50"
                   />
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">Email Address</label>
-                  <input 
-                    type="text" 
-                    value={user.email} 
+                  <input
+                    type="text"
+                    value={user.email}
                     readOnly
                     className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-700 dark:text-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/50"
                   />
                 </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">User ID</label>
-                  <input 
-                    type="text" 
-                    value={user.id} 
-                    readOnly
-                    className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-500 dark:text-slate-400 text-sm font-mono"
-                  />
-                </div>
+
                 <div>
                   <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">Role</label>
-                  <input 
-                    type="text" 
-                    value={user.role} 
+                  <input
+                    type="text"
+                    value={user.role}
                     readOnly
                     className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600 rounded-lg text-slate-700 dark:text-slate-200 text-sm"
                   />
@@ -166,7 +158,7 @@ export const UserProfile: React.FC<UserProfileProps> = ({ user, onLogout }) => {
                   </div>
                 </div>
               ))}
-              
+
               <button className="w-full py-2 text-xs font-medium text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors mt-4">
                 View Full Logs
               </button>
