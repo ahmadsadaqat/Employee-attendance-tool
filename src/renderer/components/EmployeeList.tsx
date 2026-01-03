@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useFrappeDocList } from '../hooks/useData';
+import { useFrappeDocList, useFrappeCount } from '../hooks/useData';
 import { Employee } from '../types';
 import { Clock, Calendar, Mail, Loader2, Search, ChevronLeft, ChevronRight } from 'lucide-react';
 
@@ -31,6 +31,9 @@ export const EmployeeList: React.FC = () => {
     limit: limit,
     page: page
   });
+
+  // Fetch total count for pagination
+  const { data: totalCount } = useFrappeCount('Employee', filters);
 
   const { data: shiftsData, isLoading: shiftsLoading } = useFrappeDocList('Shift Type', {
     fields: ['name', 'start_time', 'end_time']
@@ -98,7 +101,10 @@ export const EmployeeList: React.FC = () => {
     <div className="space-y-6">
        <div className='flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4'>
            <div>
-               <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100">Employees</h2>
+               <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100">
+                   Employees
+                   <span className="ml-2 text-sm font-normal text-slate-500 dark:text-slate-400">({totalCount || employees.length})</span>
+               </h2>
                <p className="text-sm text-slate-500 dark:text-slate-400">Personnel directory and shift assignments</p>
            </div>
 
@@ -183,7 +189,11 @@ export const EmployeeList: React.FC = () => {
          {/* Pagination Controls */}
          <div className="bg-slate-50 dark:bg-slate-900/50 border-t border-slate-200 dark:border-slate-700 px-6 py-3 flex items-center justify-between">
             <div className="text-xs text-slate-500 dark:text-slate-400">
-                Page {page + 1} (Top {limit} results)
+                {totalCount ? (
+                    <>Showing {page * limit + 1} - {page * limit + employees.length} of {totalCount}</>
+                ) : (
+                    <>Page {page + 1} (Top {limit} results)</>
+                )}
             </div>
             <div className="flex gap-2">
                 <button
@@ -195,7 +205,7 @@ export const EmployeeList: React.FC = () => {
                 </button>
                 <button
                     onClick={() => setPage(p => p + 1)}
-                    disabled={employees.length < limit}
+                    disabled={totalCount ? ((page + 1) * limit >= totalCount) : (employees.length < limit)}
                     className="p-1.5 rounded-md hover:bg-white dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-slate-600 dark:text-slate-300 border border-transparent hover:border-slate-200 dark:hover:border-slate-600"
                 >
                     <ChevronRight size={16} />

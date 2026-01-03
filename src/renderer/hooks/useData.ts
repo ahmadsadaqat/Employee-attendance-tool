@@ -135,3 +135,29 @@ export const useLocalAttendance = (limit: number = 500) => {
         refetchInterval: 5000 // Poll frequently to show new logs immediately
     });
 };
+
+// Hook for fetching total count of a Doctype
+export const useFrappeCount = (doctype: string, filters?: any) => {
+    const currentUrl = (window as any).frappeBaseUrl || '';
+
+    return useQuery({
+        queryKey: ['frappe', 'count', currentUrl, doctype, filters],
+        queryFn: async () => {
+            const baseUrl = getBaseUrl();
+            const params = new URLSearchParams({
+                fields: JSON.stringify(["name"]),
+                filters: JSON.stringify(filters || []),
+                limit_page_length: '99999' // Fetch all to count
+            });
+
+            const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+            const response = await fetch(`${baseUrl}/api/resource/${doctype}?${params.toString()}`, { method: 'GET', headers });
+
+            if (!response.ok) return 0;
+            const json = await response.json();
+            return json.data ? json.data.length : 0;
+        },
+        // Cache count for longer as it changes less frequently
+        staleTime: 1000 * 60 * 5
+    });
+};
