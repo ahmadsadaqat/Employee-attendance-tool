@@ -37,5 +37,11 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.invoke('auth:login-token', { url, apiKey, apiSecret }),
   logout: () => ipcRenderer.invoke('auth:logout'),
   getNetworkStatus: () => ipcRenderer.invoke('network:status'),
-  log: (level: string, ...args: any[]) => ipcRenderer.send('log', level, ...args)
+  log: (level: string, ...args: any[]) =>
+    ipcRenderer.send('log', level, ...args),
+  // Cloud / Supabase
+  restoreFromCloud: () => ipcRenderer.invoke('supabase:restore'),
+  syncToCloud: () => ipcRenderer.invoke('supabase:sync'),
+  setCloudSyncInterval: (seconds: number) =>
+    ipcRenderer.invoke('supabase:set-interval', seconds),
 })
