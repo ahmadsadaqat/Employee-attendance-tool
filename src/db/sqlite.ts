@@ -2,9 +2,6 @@ import DatabaseDriver from 'better-sqlite3'
 import path from 'node:path'
 import fs from 'node:fs'
 
-const dataDir = path.join(process.cwd(), 'data')
-const dbPath = path.join(dataDir, 'attendance.db')
-
 export type Attendance = {
   id?: number
   device_id: number
@@ -26,10 +23,14 @@ export type Device = {
 
 export class Database {
   private static db: DatabaseDriver.Database
+  private static dbPath: string
 
-  static async init(currentInstanceUrl?: string) {
+  static async init(storagePath: string, currentInstanceUrl?: string) {
+    const dataDir = storagePath
     if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true })
-    this.db = new DatabaseDriver(dbPath)
+
+    this.dbPath = path.join(dataDir, 'attendance.db')
+    this.db = new DatabaseDriver(this.dbPath)
     this.db.pragma('journal_mode = WAL')
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS devices (
@@ -249,7 +250,7 @@ export class Database {
       return this.db
         .prepare(
           `
-            SELECT a.* FROM attendance a
+            SELECT a.*, a.status as log_type FROM attendance a
             JOIN devices d ON a.device_id = d.id
             WHERE a.synced=0 AND d.instance_url = ?
             ORDER BY a.timestamp ASC
@@ -260,7 +261,7 @@ export class Database {
     }
     return this.db
       .prepare(
-        'SELECT * FROM attendance WHERE synced=0 ORDER BY timestamp ASC LIMIT ?'
+        'SELECT *, status as log_type FROM attendance WHERE synced=0 ORDER BY timestamp ASC LIMIT ?'
       )
       .all(limit) as any
   }

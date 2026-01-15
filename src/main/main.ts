@@ -223,9 +223,21 @@ app.whenReady().then(async () => {
   const { Database } = await import('../db/sqlite')
   const { ZKClient } = await import('./zkclient')
 
+  // Determine DB Path
+  let dataPath = ''
+  if (process.env.VITE_DEV_SERVER) {
+    dataPath = path.join(process.cwd(), 'data')
+  } else {
+    // In production, use standard User Data directory
+    dataPath = path.join(app.getPath('userData'), 'data')
+  }
+
+  // Create data dir if not exists (init handles it, but good to ensure parent exists)
+  // Database.init checks internally.
+
   // Initialize DB, potentially backfilling with current URL if available
   const initialCreds = await getCredentials()
-  await Database.init(initialCreds?.baseUrl)
+  await Database.init(dataPath, initialCreds?.baseUrl)
 
   createWindow()
   createTray()
@@ -475,13 +487,20 @@ app.whenReady().then(async () => {
           )
         }
 
-        // Format timestamp to YYYY-MM-DD HH:mm:ss (remove T, Z, and offsets)
-        // Frappe expects naive datetime in server timezone
-        const formattedTime = u.timestamp
-          .replace('T', ' ')
-          .replace('Z', '')
-          .split('.')[0] // Remove milliseconds
-          .split('+')[0] // Remove +00:00 offset if present
+        // Format timestamp to YYYY-MM-DD HH:mm:ss (Local Time)
+        // Stored timestamp is ISO (UTC). We need to send "Device Wall Clock" time to Frappe.
+        // Assuming the PC running this app is in the same timezone as the Device and the ERP Server.
+        const dateObj = new Date(u.timestamp)
+
+        // Get local components
+        const year = dateObj.getFullYear()
+        const month = String(dateObj.getMonth() + 1).padStart(2, '0')
+        const day = String(dateObj.getDate()).padStart(2, '0')
+        const hours = String(dateObj.getHours()).padStart(2, '0')
+        const minutes = String(dateObj.getMinutes()).padStart(2, '0')
+        const seconds = String(dateObj.getSeconds()).padStart(2, '0')
+
+        const formattedTime = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`
 
         const payload = {
           employee: realEmployeeId,
@@ -851,7 +870,7 @@ app.whenReady().then(async () => {
       }
 
       // 2. Restore Logs
-      const remoteLogs = await pullLogs(2000) // Limit 2000
+      const remoteLogs = await pullLogs(1000) // Limit 1000
       let logsRestored = 0
       for (const l of remoteLogs) {
         Database.insertAttendance({
