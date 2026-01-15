@@ -13,6 +13,15 @@ import {
 import path from 'node:path'
 import Store from 'electron-store'
 import { FrappeApp } from 'frappe-js-sdk'
+import {
+  initSupabase,
+  testConnection,
+  syncDevices,
+  syncLogs,
+  pullDevices,
+  pullLogs,
+  deleteDevice,
+} from './supabase'
 
 // -------------------- GLOBAL SAFETY & CONFIG --------------------
 
@@ -282,7 +291,6 @@ app.whenReady().then(async () => {
     Database.deleteDevice(id)
     // Also remove from Cloud if configured
     try {
-      const { deleteDevice } = await import('./supabase')
       await deleteDevice(id)
     } catch (e) {
       console.warn('Main: Failed to delete device from Cloud:', e)
@@ -733,14 +741,7 @@ app.whenReady().then(async () => {
 
   // -------------------- SUPABASE HANDLERS --------------------
 
-  const {
-    initSupabase,
-    testConnection,
-    syncDevices,
-    syncLogs,
-    pullDevices,
-    pullLogs,
-  } = await import('./supabase')
+  // -------------------- SUPABASE HANDLERS --------------------
 
   // Load from Env
   const supabaseUrl = process.env.SUPABASE_URL

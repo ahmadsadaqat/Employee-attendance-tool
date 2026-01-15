@@ -51,7 +51,7 @@
   },
   "build": {
     "appId": "com.nexo.employees",
-    "icon": "assets/nexo-64x64.png",
+    "icon": "assets/icon.svg",
     "files": [
       "**/*",
       "!**/*.ts",
@@ -79,8 +79,6 @@
       "icon": "assets/nexo-256x256.ico",
       "artifactName": "nexo-employees_${version}_${arch}.${ext}"
     },
-    "npmRebuild": false,
-    "buildDependenciesFromSource": false,
-    "nodeGypRebuild": false
+    "buildDependenciesFromSource": false
   }
 }

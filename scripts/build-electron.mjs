@@ -1,6 +1,7 @@
 import { build, context } from 'esbuild'
 import { nodeExternalsPlugin } from 'esbuild-node-externals'
 import path from 'node:path'
+import 'dotenv/config'
 
 const watch = process.argv.includes('--watch')
 
@@ -17,8 +18,16 @@ async function run() {
     bundle: true,
     sourcemap: true,
     plugins: [nodeExternalsPlugin()],
-    external: ['keytar'],
+    external: ['keytar', 'better-sqlite3'],
     outExtension: { '.js': '.cjs' },
+    define: {
+      'process.env.SUPABASE_URL': JSON.stringify(
+        process.env.SUPABASE_URL || ''
+      ),
+      'process.env.SUPABASE_PUBLISHABLE_DEFAULT_KEY': JSON.stringify(
+        process.env.SUPABASE_PUBLISHABLE_DEFAULT_KEY || ''
+      ),
+    },
   }
   if (watch) {
     const ctx = await context(options)
