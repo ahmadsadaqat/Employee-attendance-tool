@@ -327,13 +327,43 @@ app.whenReady().then(async () => {
 
         const logs = await ZKClient.fetchLogs({ ip, port, commKey, useUdp })
         console.log(`Main: Fetched ${logs.length} logs from ZKClient`)
+
+        // Sort logs by timestamp ascending to ensure we process them in order
+        logs.sort(
+          (a: any, b: any) =>
+            new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+        )
+
         let imported = 0
         for (const log of logs) {
+          // 1. Get last status for this employee
+          const lastLog = Database.getLastLog(log.employee_id)
+
+          let newStatus: 'IN' | 'OUT' = 'IN' // Default to IN if no history
+
+          if (lastLog) {
+            // Check for double punch (within 60 seconds)
+            const timeDiff =
+              new Date(log.timestamp).getTime() -
+              new Date(lastLog.timestamp).getTime()
+            if (timeDiff < 60 * 1000 && timeDiff >= 0) {
+              console.log(
+                `Main: Ignoring double punch for ${log.employee_id} within ${timeDiff}ms`
+              )
+              continue
+            }
+
+            // Toggle Status
+            if (lastLog.status === 'IN') {
+              newStatus = 'OUT'
+            }
+          }
+
           const id = Database.insertAttendance({
             device_id: deviceId,
             employee_id: log.employee_id,
             timestamp: log.timestamp,
-            status: log.status,
+            status: newStatus,
             synced: 0,
           })
           if (id) imported += 1
@@ -397,7 +427,7 @@ app.whenReady().then(async () => {
     }
 
     // Get unsynced from DB filtered by instance URL
-    const unsynced = Database.getUnsynced(creds.baseUrl)
+    const unsynced = Database.getUnsynced(100, creds.baseUrl)
     console.log(
       `Main: Found ${unsynced.length} unsynced records for ${creds.baseUrl}`
     )

@@ -250,7 +250,7 @@ export class Database {
       return this.db
         .prepare(
           `
-            SELECT a.*, a.status as log_type FROM attendance a
+            SELECT a.* FROM attendance a
             JOIN devices d ON a.device_id = d.id
             WHERE a.synced=0 AND d.instance_url = ?
             ORDER BY a.timestamp ASC
@@ -261,7 +261,7 @@ export class Database {
     }
     return this.db
       .prepare(
-        'SELECT *, status as log_type FROM attendance WHERE synced=0 ORDER BY timestamp ASC LIMIT ?'
+        'SELECT * FROM attendance WHERE synced=0 ORDER BY timestamp ASC LIMIT ?'
       )
       .all(limit) as any
   }
@@ -319,6 +319,14 @@ export class Database {
         'SELECT * FROM attendance ORDER BY datetime(timestamp) DESC LIMIT ?'
       )
       .all(limit) as Attendance[] & { id: number }[]
+  }
+
+  static getLastLog(employeeId: string): Attendance | undefined {
+    return this.db
+      .prepare(
+        'SELECT * FROM attendance WHERE employee_id = ? ORDER BY timestamp DESC LIMIT 1'
+      )
+      .get(employeeId) as Attendance | undefined
   }
 
   static listAttendanceByDevice(deviceId: number, limit = 100) {
