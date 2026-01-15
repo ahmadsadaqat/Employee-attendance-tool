@@ -1,78 +1,104 @@
-import React, { useState } from 'react';
-import { useFrappeDocList, useFrappeCount } from '../hooks/useData';
-import { Employee } from '../types';
-import { Clock, Calendar, Mail, Loader2, Search, ChevronLeft, ChevronRight } from 'lucide-react';
+import React, { useState } from 'react'
+import { useFrappeDocList, useFrappeCount } from '../hooks/useData'
+import { Employee } from '../types'
+import {
+  Clock,
+  Calendar,
+  Mail,
+  Loader2,
+  Search,
+  ChevronLeft,
+  ChevronRight,
+} from 'lucide-react'
 
 export const EmployeeList: React.FC = () => {
-  const [searchTerm, setSearchTerm] = useState('');
-  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
-  const [page, setPage] = useState(0);
-  const [limit] = useState(20);
+  const [searchTerm, setSearchTerm] = useState('')
+  const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('')
+  const [statusFilter, setStatusFilter] = useState('Active')
+  const [page, setPage] = useState(0)
+  const [limit] = useState(20)
 
   // Debounce search term
   React.useEffect(() => {
     const handler = setTimeout(() => {
-      setDebouncedSearchTerm(searchTerm);
-    }, 500);
-    return () => clearTimeout(handler);
-  }, [searchTerm]);
+      setDebouncedSearchTerm(searchTerm)
+    }, 500)
+    return () => clearTimeout(handler)
+  }, [searchTerm])
 
-  // Construct filters based on search term
-  // If term looks like an ID (contains numbers), search 'name' OR 'employee_name' if we could,
-  // but standard API is limited. Let's try name search primarily.
-  // Ideally, we'd use `or_filters` but let's stick to simple filters for now as per useData.
-  const filters = debouncedSearchTerm
-    ? [['employee_name', 'like', `%${debouncedSearchTerm}%`]]
-    : [];
+  // Construct filters based on search term and status
+  const filters = [
+    ...(debouncedSearchTerm
+      ? [['employee_name', 'like', `%${debouncedSearchTerm}%`]]
+      : []),
+    ...(statusFilter !== 'All' ? [['status', '=', statusFilter]] : []),
+  ]
 
-  const { data: employeesData, isLoading: employeesLoading, error: employeesError } = useFrappeDocList('Employee', {
-    fields: ['name', 'employee_name', 'department', 'designation', 'status', 'image', 'default_shift'],
+  const {
+    data: employeesData,
+    isLoading: employeesLoading,
+    error: employeesError,
+  } = useFrappeDocList('Employee', {
+    fields: [
+      'name',
+      'employee_name',
+      'department',
+      'designation',
+      'status',
+      'image',
+      'default_shift',
+    ],
     filters: filters,
     limit: limit,
-    page: page
-  });
+    page: page,
+  })
 
   // Fetch total count for pagination
-  const { data: totalCount } = useFrappeCount('Employee', filters);
+  const { data: totalCount } = useFrappeCount('Employee', filters)
 
-  const { data: shiftsData, isLoading: shiftsLoading } = useFrappeDocList('Shift Type', {
-    fields: ['name', 'start_time', 'end_time']
-  });
+  const { data: shiftsData, isLoading: shiftsLoading } = useFrappeDocList(
+    'Shift Type',
+    {
+      fields: ['name', 'start_time', 'end_time'],
+    }
+  )
 
-  // Reset page when search changes
+  // Reset page when search or filter changes
   React.useEffect(() => {
-    setPage(0);
-  }, [debouncedSearchTerm]);
+    setPage(0)
+  }, [debouncedSearchTerm, statusFilter])
 
   if (employeesLoading || shiftsLoading) {
     return (
-      <div className="flex flex-col items-center justify-center p-12 text-slate-400">
-        <Loader2 className="animate-spin mb-2" size={32} />
+      <div className='flex flex-col items-center justify-center p-12 text-slate-400'>
+        <Loader2 className='animate-spin mb-2' size={32} />
         <p>Loading directory...</p>
       </div>
-    );
+    )
   }
 
   if (employeesError) {
     return (
-      <div className="p-8 text-center text-red-500 bg-red-50 rounded-xl border border-red-100 dark:bg-red-900/10 dark:border-red-900/30">
+      <div className='p-8 text-center text-red-500 bg-red-50 rounded-xl border border-red-100 dark:bg-red-900/10 dark:border-red-900/30'>
         <p>Failed to load employees. Please check your connection.</p>
-        <p className="text-xs mt-1 opacity-70">{(employeesError as any).message}</p>
+        <p className='text-xs mt-1 opacity-70'>
+          {(employeesError as any).message}
+        </p>
       </div>
-    );
+    )
   }
 
   // Create a map for quick shift lookup
-  const shiftMap = new Map<string, { start: string, end: string }>();
+  const shiftMap = new Map<string, { start: string; end: string }>()
   if (shiftsData) {
     shiftsData.forEach((shift: any) => {
       // Format times to HH:MM if they have seconds
-      const formatTime = (t: string) => t ? t.substring(0, 5) : '00:00';
+      const formatTime = (t: string) => (t ? t.substring(0, 5) : '00:00')
       shiftMap.set(shift.name, {
         start: formatTime(shift.start_time),
-        end: formatTime(shift.end_time)
-      });
-    });
+        end: formatTime(shift.end_time),
+      })
+    })
   }
 
   const employees: Employee[] = (employeesData || [])
@@ -82,7 +108,9 @@ export const EmployeeList: React.FC = () => {
     // Ideally we should add ['status', '=', 'Active'] to filters if that's the requirement.
     // For now, let's assume we want to see all matched employees.
     .map((doc: any) => {
-      const shiftDetails = doc.default_shift ? shiftMap.get(doc.default_shift) : null;
+      const shiftDetails = doc.default_shift
+        ? shiftMap.get(doc.default_shift)
+        : null
       return {
         id: doc.name,
         employeeId: doc.name,
@@ -92,128 +120,213 @@ export const EmployeeList: React.FC = () => {
         shiftName: doc.default_shift || 'Standard Shift',
         shiftStart: shiftDetails?.start || '09:00',
         shiftEnd: shiftDetails?.end || '17:00',
-        avatar: doc.image ? (doc.image.startsWith('http') ? doc.image : `${(window as any).frappeBaseUrl}${doc.image}`) : `https://ui-avatars.com/api/?name=${encodeURIComponent(doc.employee_name)}&background=random`,
-        status: doc.status || 'ACTIVE' // Use doc status
-      };
-    });
+        avatar: doc.image
+          ? doc.image.startsWith('http')
+            ? doc.image
+            : `${(window as any).frappeBaseUrl}${doc.image}`
+          : `https://ui-avatars.com/api/?name=${encodeURIComponent(
+              doc.employee_name
+            )}&background=random`,
+        status: doc.status || 'ACTIVE', // Use doc status
+      }
+    })
 
   return (
-    <div className="space-y-6">
-       <div className='flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4'>
-           <div>
-               <h2 className="text-xl font-bold text-slate-800 dark:text-slate-100">
-                   Employees
-                   <span className="ml-2 text-sm font-normal text-slate-500 dark:text-slate-400">({totalCount || employees.length})</span>
-               </h2>
-               <p className="text-sm text-slate-500 dark:text-slate-400">Personnel directory and shift assignments</p>
-           </div>
+    <div className='space-y-6'>
+      <div className='flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4'>
+        <div>
+          <h2 className='text-xl font-bold text-slate-800 dark:text-slate-100'>
+            Employees
+            <span className='ml-2 text-sm font-normal text-slate-500 dark:text-slate-400'>
+              ({totalCount || employees.length})
+            </span>
+          </h2>
+          <p className='text-sm text-slate-500 dark:text-slate-400'>
+            Personnel directory and shift assignments
+          </p>
+        </div>
 
-           {/* Local Search Input */}
-           <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-              <input
-                type="text"
-                placeholder="Search by name..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-9 pr-4 py-2 rounded-lg border border-slate-200 dark:border-slate-600 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm w-64 bg-white dark:bg-slate-800 dark:text-white"
-              />
-           </div>
-       </div>
-
-       <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
-         <table className="w-full text-left text-sm">
-           <thead className="bg-slate-50 dark:bg-slate-900/50 text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700">
-             <tr>
-               <th className="px-6 py-4 font-semibold text-xs uppercase tracking-wider">Employee</th>
-               <th className="px-6 py-4 font-semibold text-xs uppercase tracking-wider">Department</th>
-               <th className="px-6 py-4 font-semibold text-xs uppercase tracking-wider">Shift Details</th>
-               <th className="px-6 py-4 font-semibold text-xs uppercase tracking-wider">Status</th>
-             </tr>
-           </thead>
-           <tbody className="divide-y divide-slate-100 dark:divide-slate-700">
-             {employees.length === 0 ? (
-               <tr>
-                 <td colSpan={4} className="px-6 py-8 text-center text-slate-500">
-                   {searchTerm ? 'No employees matching search' : 'No employees found'}
-                 </td>
-               </tr>
-             ) : (
-               employees.map((emp) => (
-                 <tr key={emp.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-700/50 transition-colors">
-                   <td className="px-6 py-4">
-                     <div className="flex items-center gap-4">
-                       <img src={emp.avatar} alt={emp.name} className="w-10 h-10 rounded-full object-cover border border-slate-200 dark:border-slate-600" />
-                       <div>
-                         <div className="font-bold text-slate-800 dark:text-slate-200">{emp.name}</div>
-                         <div className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1">
-                           <Mail size={12} /> {emp.employeeId}
-                         </div>
-                       </div>
-                     </div>
-                   </td>
-                   <td className="px-6 py-4">
-                     <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-600">
-                       {emp.department}
-                     </span>
-                     <div className="text-xs text-slate-400 mt-1">{emp.role}</div>
-                   </td>
-                   <td className="px-6 py-4">
-                     <div className="flex flex-col gap-1">
-                       <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300 font-medium">
-                         <Calendar size={14} className="text-teal-500" />
-                         {emp.shiftName}
-                       </div>
-                       <div className="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 font-mono">
-                         <Clock size={12} />
-                         {emp.shiftStart} - {emp.shiftEnd}
-                       </div>
-                     </div>
-                   </td>
-                   <td className="px-6 py-4">
-                     <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold ${
-                       (emp.status || '').toUpperCase() === 'ACTIVE'
-                         ? 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-800'
-                         : 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-600'
-                     }`}>
-                       <span className={`w-1.5 h-1.5 rounded-full ${(emp.status || '').toUpperCase() === 'ACTIVE' ? 'bg-emerald-500' : 'bg-slate-400'}`}></span>
-                       {emp.status}
-                     </span>
-                   </td>
-                 </tr>
-               ))
-             )}
-           </tbody>
-         </table>
-
-         {/* Pagination Controls */}
-         <div className="bg-slate-50 dark:bg-slate-900/50 border-t border-slate-200 dark:border-slate-700 px-6 py-3 flex items-center justify-between">
-            <div className="text-xs text-slate-500 dark:text-slate-400">
-                {totalCount ? (
-                    <>Showing {page * limit + 1} - {page * limit + employees.length} of {totalCount}</>
-                ) : (
-                    <>Page {page + 1} (Top {limit} results)</>
-                )}
+        <div className='flex items-center gap-3'>
+          {/* Status Filter */}
+          <div className='relative'>
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className='appearance-none pl-4 pr-10 py-2 rounded-lg border border-slate-200 dark:border-slate-600 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm bg-white dark:bg-slate-800 dark:text-white cursor-pointer'
+            >
+              <option value='Active'>Active</option>
+              <option value='Inactive'>Inactive</option>
+              <option value='Suspend'>Suspend</option>
+              <option value='Left'>Left</option>
+              <option value='All'>All Statuses</option>
+            </select>
+            <div className='absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400'>
+              <svg
+                xmlns='http://www.w3.org/2000/svg'
+                width='16'
+                height='16'
+                viewBox='0 0 24 24'
+                fill='none'
+                stroke='currentColor'
+                strokeWidth='2'
+                strokeLinecap='round'
+                strokeLinejoin='round'
+              >
+                <path d='m6 9 6 6 6-6' />
+              </svg>
             </div>
-            <div className="flex gap-2">
-                <button
-                    onClick={() => setPage(p => Math.max(0, p - 1))}
-                    disabled={page === 0}
-                    className="p-1.5 rounded-md hover:bg-white dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-slate-600 dark:text-slate-300 border border-transparent hover:border-slate-200 dark:hover:border-slate-600"
+          </div>
+
+          {/* Local Search Input */}
+          <div className='relative'>
+            <Search
+              className='absolute left-3 top-1/2 -translate-y-1/2 text-slate-400'
+              size={16}
+            />
+            <input
+              type='text'
+              placeholder='Search by name...'
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className='pl-9 pr-4 py-2 rounded-lg border border-slate-200 dark:border-slate-600 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm w-64 bg-white dark:bg-slate-800 dark:text-white'
+            />
+          </div>
+        </div>
+      </div>
+
+      <div className='bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden'>
+        <table className='w-full text-left text-sm'>
+          <thead className='bg-slate-50 dark:bg-slate-900/50 text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700'>
+            <tr>
+              <th className='px-6 py-4 font-semibold text-xs uppercase tracking-wider'>
+                Employee
+              </th>
+              <th className='px-6 py-4 font-semibold text-xs uppercase tracking-wider'>
+                Department
+              </th>
+              <th className='px-6 py-4 font-semibold text-xs uppercase tracking-wider'>
+                Shift Details
+              </th>
+              <th className='px-6 py-4 font-semibold text-xs uppercase tracking-wider'>
+                Status
+              </th>
+            </tr>
+          </thead>
+          <tbody className='divide-y divide-slate-100 dark:divide-slate-700'>
+            {employees.length === 0 ? (
+              <tr>
+                <td
+                  colSpan={4}
+                  className='px-6 py-8 text-center text-slate-500'
                 >
-                    <ChevronLeft size={16} />
-                </button>
-                <button
-                    onClick={() => setPage(p => p + 1)}
-                    disabled={totalCount ? ((page + 1) * limit >= totalCount) : (employees.length < limit)}
-                    className="p-1.5 rounded-md hover:bg-white dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-slate-600 dark:text-slate-300 border border-transparent hover:border-slate-200 dark:hover:border-slate-600"
+                  {searchTerm
+                    ? 'No employees matching search'
+                    : 'No employees found'}
+                </td>
+              </tr>
+            ) : (
+              employees.map((emp) => (
+                <tr
+                  key={emp.id}
+                  className='hover:bg-slate-50/50 dark:hover:bg-slate-700/50 transition-colors'
                 >
-                    <ChevronRight size={16} />
-                </button>
-            </div>
-         </div>
-       </div>
+                  <td className='px-6 py-4'>
+                    <div className='flex items-center gap-4'>
+                      <img
+                        src={emp.avatar}
+                        alt={emp.name}
+                        className='w-10 h-10 rounded-full object-cover border border-slate-200 dark:border-slate-600'
+                      />
+                      <div>
+                        <div className='font-bold text-slate-800 dark:text-slate-200'>
+                          {emp.name}
+                        </div>
+                        <div className='text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1'>
+                          <Mail size={12} /> {emp.employeeId}
+                        </div>
+                      </div>
+                    </div>
+                  </td>
+                  <td className='px-6 py-4'>
+                    <span className='inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-600'>
+                      {emp.department}
+                    </span>
+                    <div className='text-xs text-slate-400 mt-1'>
+                      {emp.role}
+                    </div>
+                  </td>
+                  <td className='px-6 py-4'>
+                    <div className='flex flex-col gap-1'>
+                      <div className='flex items-center gap-2 text-slate-700 dark:text-slate-300 font-medium'>
+                        <Calendar size={14} className='text-teal-500' />
+                        {emp.shiftName}
+                      </div>
+                      <div className='flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400 font-mono'>
+                        <Clock size={12} />
+                        {emp.shiftStart} - {emp.shiftEnd}
+                      </div>
+                    </div>
+                  </td>
+                  <td className='px-6 py-4'>
+                    <span
+                      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold ${
+                        (emp.status || '').toUpperCase() === 'ACTIVE'
+                          ? 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-800'
+                          : 'bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-400 border border-slate-200 dark:border-slate-600'
+                      }`}
+                    >
+                      <span
+                        className={`w-1.5 h-1.5 rounded-full ${
+                          (emp.status || '').toUpperCase() === 'ACTIVE'
+                            ? 'bg-emerald-500'
+                            : 'bg-slate-400'
+                        }`}
+                      ></span>
+                      {emp.status}
+                    </span>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+
+        {/* Pagination Controls */}
+        <div className='bg-slate-50 dark:bg-slate-900/50 border-t border-slate-200 dark:border-slate-700 px-6 py-3 flex items-center justify-between'>
+          <div className='text-xs text-slate-500 dark:text-slate-400'>
+            {totalCount ? (
+              <>
+                Showing {page * limit + 1} - {page * limit + employees.length}{' '}
+                of {totalCount}
+              </>
+            ) : (
+              <>
+                Page {page + 1} (Top {limit} results)
+              </>
+            )}
+          </div>
+          <div className='flex gap-2'>
+            <button
+              onClick={() => setPage((p) => Math.max(0, p - 1))}
+              disabled={page === 0}
+              className='p-1.5 rounded-md hover:bg-white dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-slate-600 dark:text-slate-300 border border-transparent hover:border-slate-200 dark:hover:border-slate-600'
+            >
+              <ChevronLeft size={16} />
+            </button>
+            <button
+              onClick={() => setPage((p) => p + 1)}
+              disabled={
+                totalCount
+                  ? (page + 1) * limit >= totalCount
+                  : employees.length < limit
+              }
+              className='p-1.5 rounded-md hover:bg-white dark:hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-slate-600 dark:text-slate-300 border border-transparent hover:border-slate-200 dark:hover:border-slate-600'
+            >
+              <ChevronRight size={16} />
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
-  );
-};
-
+  )
+}
