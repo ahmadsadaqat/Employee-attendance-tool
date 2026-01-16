@@ -53,9 +53,47 @@ export class Database {
       );
       CREATE INDEX IF NOT EXISTS idx_attendance_synced ON attendance(synced);
       CREATE INDEX IF NOT EXISTS idx_attendance_timestamp ON attendance(timestamp);
-      CREATE UNIQUE INDEX IF NOT EXISTS idx_attendance_dedupe
-        ON attendance(device_id, employee_id, timestamp, status);
     `)
+
+    // Migration: Fix duplicate log issue
+    // Step 1: Drop old index (that included 'status')
+    try {
+      this.db.exec('DROP INDEX IF EXISTS idx_attendance_dedupe')
+      console.log('Migration: Dropped old dedupe index')
+    } catch (e) {
+      console.warn('Migration: Could not drop old index', e)
+    }
+
+    // Step 2: Delete duplicates FIRST (keep only the first one per device_id, employee_id, timestamp)
+    try {
+      const info = this.db
+        .prepare(
+          `
+        DELETE FROM attendance
+        WHERE id NOT IN (
+          SELECT MIN(id) FROM attendance
+          GROUP BY device_id, employee_id, timestamp
+        )
+      `
+        )
+        .run()
+      console.log(
+        `Migration: Removed ${info.changes} duplicate attendance entries.`
+      )
+    } catch (e) {
+      console.warn('Migration: Could not clean duplicates', e)
+    }
+
+    // Step 3: NOW create the unique index (will succeed since duplicates are gone)
+    try {
+      this.db.exec(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_attendance_dedupe
+          ON attendance(device_id, employee_id, timestamp)
+      `)
+      console.log('Migration: Created new dedupe index (without status)')
+    } catch (e) {
+      console.error('Migration: FAILED to create unique index!', e)
+    }
 
     // Backfill columns for older DBs
     try {
@@ -240,6 +278,24 @@ export class Database {
       rows.forEach((id) => stmt.run(id))
     )
     tx(ids)
+  }
+
+  static resetSyncStatus(ids: number[]) {
+    if (!ids.length) return
+    const stmt = this.db.prepare('UPDATE attendance SET synced=0 WHERE id=?')
+    const tx = this.db.transaction((rows: number[]) =>
+      rows.forEach((id) => stmt.run(id))
+    )
+    tx(ids)
+  }
+
+  static resetSyncStatusByDate(startDate: string, endDate: string) {
+    // startDate and endDate should be ISO strings or compatible for comparison
+    return this.db
+      .prepare(
+        'UPDATE attendance SET synced=0 WHERE timestamp >= ? AND timestamp <= ?'
+      )
+      .run(startDate, endDate)
   }
 
   static getUnsynced(

@@ -170,6 +170,8 @@ export default function Dashboard({
     alertThreshold: 'MEDIUM',
     darkMode: true,
     retentionDays: 30,
+    deviceFetchIntervalSeconds: 60,
+    doublePunchThresholdSeconds: 60,
   })
 
   // Apply Dark Mode
@@ -363,7 +365,7 @@ export default function Dashboard({
     source: string = 'System'
   ) => {
     const newAlert: SystemAlert = {
-      id: Date.now().toString(),
+      id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       message,
       severity,
       source,
@@ -414,25 +416,50 @@ export default function Dashboard({
     }
   }
 
-  const handleForceFetchDevices = async () => {
+  /* Device Fetch Logic */
+  const handleForceFetchDevices = async (options?: { silent?: boolean }) => {
     setIsLoading(true)
     try {
-      const count = await deviceSync.mutateAsync()
-      addNotification(
-        `Synced ${count} logs from devices`,
-        'SUCCESS',
-        'Device Sync'
-      )
+      const count = await deviceSync.mutateAsync({
+        threshold: appSettings.doublePunchThresholdSeconds ?? 60,
+      })
+
+      if (!options?.silent) {
+        addNotification(
+          `Synced ${count} logs from devices`,
+          'SUCCESS',
+          'Device Sync'
+        )
+      } else if (count > 0 && options?.silent) {
+        // Even in silent mode, if we found data, let the user know gently or debug
+        console.log(`Auto-fetch: synced ${count} logs`)
+      }
 
       if (count > 0) {
         await syncToERP(true)
       }
     } catch (e: any) {
-      addNotification(`Sync failed: ${e.message}`, 'CRITICAL', 'Device Sync')
+      if (!options?.silent) {
+        addNotification(`Sync failed: ${e.message}`, 'CRITICAL', 'Device Sync')
+      } else {
+        console.error('Auto-fetch failed', e)
+      }
     } finally {
       setIsLoading(false)
     }
   }
+
+  // Auto-Fetch Loop
+  useEffect(() => {
+    const intervalSeconds = appSettings.deviceFetchIntervalSeconds || 60 // Default 60s
+    console.log(`Setting up device auto-fetch interval: ${intervalSeconds}s`)
+
+    const intervalId = setInterval(() => {
+      handleForceFetchDevices({ silent: true })
+    }, intervalSeconds * 1000)
+
+    return () => clearInterval(intervalId)
+  }, [appSettings.deviceFetchIntervalSeconds])
 
   const handleImportConfirm = (start: string, end: string, count: number) => {
     setIsLoading(true)
@@ -653,6 +680,36 @@ export default function Dashboard({
     }
   }
 
+  /* Force Resync Logic (Bulk) */
+  const handleBulkResync = async (startDate: string, endDate: string) => {
+    try {
+      const result = await (window as any).api.resetSyncStatusByDate(
+        startDate,
+        endDate
+      )
+
+      if (result.ok) {
+        addNotification(
+          `Marked ${result.updated} logs for resync. Please click "Push to ERP".`,
+          'INFO',
+          'Sync Manager'
+        )
+
+        // Trigger refetch to update UI status (changing Green 'Synced' to Yellow 'Pending')
+        refetchLocalLogs()
+      } else {
+        addNotification(
+          'Failed to reset sync status.',
+          'WARNING',
+          'Sync Manager'
+        )
+      }
+    } catch (e) {
+      console.error('Failed to reset sync status by date', e)
+      addNotification('Failed to reset sync status', 'WARNING', 'Sync Manager')
+    }
+  }
+
   const renderContent = () => {
     switch (currentView) {
       case 'employees':
@@ -671,8 +728,9 @@ export default function Dashboard({
         return (
           <AccessLogList
             logs={checkIns}
-            onImport={handleManualImport}
+            onImport={() => handleForceFetchDevices({ silent: false })}
             onSync={handleForcePushToERP}
+            onResetSyncRange={handleBulkResync}
           />
         )
       case 'settings':
@@ -744,7 +802,7 @@ export default function Dashboard({
                   Force Import
                 </button>
                 <button
-                  onClick={handleForceFetchDevices}
+                  onClick={() => handleForceFetchDevices()}
                   disabled={isLoading}
                   className='flex items-center gap-2 px-3 py-2 bg-teal-600 text-white rounded-lg text-sm font-medium hover:bg-teal-700 shadow-sm shadow-teal-200 dark:shadow-none transition-all active:scale-95 disabled:opacity-70 whitespace-nowrap'
                 >

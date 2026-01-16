@@ -115,16 +115,8 @@ export const useDeviceLogs = (enabled: boolean = false) => {
   const queryClient = useQueryClient()
 
   const mutation = useMutation({
-    mutationFn: async () => {
-      // Logic to fetch from ALL devices would go here,
-      // but usually this is a pervasive action.
-      // For now, let's assume we invoke the main process function 'device:fetchLogs' for known devices.
-      // But realistically, the Dashboard calls `mutateLogs` which refetches from Frappe.
-      // The user asked to fetch access logs FROM ZKTeco devices.
-      // That implies triggering the sync.
-
-      // We'll mimic the existing "Sync Devices" logic:
-      // 1. Get list of devices (could be another query)
+    mutationFn: async ({ threshold }: { threshold?: number } = {}) => {
+      // Logic to fetch from ALL devices
       const devices = await (window as any).api.listDevices()
       let totalImported = 0
 
@@ -132,7 +124,11 @@ export const useDeviceLogs = (enabled: boolean = false) => {
         try {
           const result = await (window as any).api.fetchLogs(
             device.ip,
-            device.port
+            device.port,
+            device.name,
+            device.commKey,
+            device.useUdp === 1,
+            { doublePunchThreshold: threshold }
           )
           if (result.imported) totalImported += result.imported
         } catch (e) {

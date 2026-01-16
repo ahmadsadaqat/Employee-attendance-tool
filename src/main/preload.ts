@@ -17,9 +17,17 @@ contextBridge.exposeInMainWorld('api', {
     port?: number,
     name?: string,
     commKey?: string,
-    useUdp?: boolean
+    useUdp?: boolean,
+    options?: { doublePunchThreshold?: number }
   ) =>
-    ipcRenderer.invoke('device:fetchLogs', { ip, port, name, commKey, useUdp }),
+    ipcRenderer.invoke('device:fetchLogs', {
+      ip,
+      port,
+      name,
+      commKey,
+      useUdp,
+      ...options,
+    }),
   listAttendance: (limit?: number) =>
     ipcRenderer.invoke('attendance:list', { limit }),
   listAttendanceByDevice: (deviceId: number, limit?: number) =>
@@ -27,6 +35,13 @@ contextBridge.exposeInMainWorld('api', {
   listUnsyncedAttendance: () => ipcRenderer.invoke('attendance:unsynced'),
   markAttendanceSynced: (ids: number[]) =>
     ipcRenderer.invoke('attendance:markSynced', ids),
+  resetSyncStatus: (ids: number[]) =>
+    ipcRenderer.invoke('attendance:resetSyncStatus', ids),
+  resetSyncStatusByDate: (startDate: string, endDate: string) =>
+    ipcRenderer.invoke('attendance:resetSyncStatusByDate', {
+      startDate,
+      endDate,
+    }),
   runSync: () => ipcRenderer.invoke('sync:run'),
   setCredentials: (baseUrl: string, auth: any) =>
     ipcRenderer.invoke('credentials:set', { baseUrl, auth }),
@@ -39,6 +54,7 @@ contextBridge.exposeInMainWorld('api', {
   getNetworkStatus: () => ipcRenderer.invoke('network:status'),
   log: (level: string, ...args: any[]) =>
     ipcRenderer.send('log', level, ...args),
+  cleanupData: (days: number) => ipcRenderer.invoke('data:cleanup', days),
   // Cloud / Supabase
   restoreFromCloud: () => ipcRenderer.invoke('supabase:restore'),
   syncToCloud: () => ipcRenderer.invoke('supabase:sync'),

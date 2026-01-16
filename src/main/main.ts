@@ -312,7 +312,10 @@ app.whenReady().then(async () => {
   // Fetch logs from biometric device
   ipcMain.handle(
     'device:fetchLogs',
-    async (_e, { ip, port = 4370, name, commKey, useUdp }: any) => {
+    async (
+      _e,
+      { ip, port = 4370, name, commKey, useUdp, doublePunchThreshold }: any
+    ) => {
       try {
         const creds = await getCredentials()
         const deviceName = name || `Device ${ip}`
@@ -335,6 +338,8 @@ app.whenReady().then(async () => {
         )
 
         let imported = 0
+        const thresholdMs = (doublePunchThreshold ?? 60) * 1000
+
         for (const log of logs) {
           // 1. Get last status for this employee
           const lastLog = Database.getLastLog(log.employee_id)
@@ -342,13 +347,13 @@ app.whenReady().then(async () => {
           let newStatus: 'IN' | 'OUT' = 'IN' // Default to IN if no history
 
           if (lastLog) {
-            // Check for double punch (within 60 seconds)
+            // Check for double punch (configurable threshold)
             const timeDiff =
               new Date(log.timestamp).getTime() -
               new Date(lastLog.timestamp).getTime()
-            if (timeDiff < 60 * 1000 && timeDiff >= 0) {
+            if (timeDiff < thresholdMs && timeDiff >= 0) {
               console.log(
-                `Main: Ignoring double punch for ${log.employee_id} within ${timeDiff}ms`
+                `Main: Ignoring double punch for ${log.employee_id} within ${timeDiff}ms (Threshold: ${thresholdMs}ms)`
               )
               continue
             }
@@ -414,6 +419,19 @@ app.whenReady().then(async () => {
     Database.markSynced(ids)
     return { ok: true, updated: ids?.length || 0 }
   })
+
+  ipcMain.handle('attendance:resetSyncStatus', async (_e, ids: number[]) => {
+    Database.resetSyncStatus(ids)
+    return { ok: true, updated: ids?.length || 0 }
+  })
+
+  ipcMain.handle(
+    'attendance:resetSyncStatusByDate',
+    async (_e, { startDate, endDate }) => {
+      const result = Database.resetSyncStatusByDate(startDate, endDate)
+      return { ok: true, updated: result.changes }
+    }
+  )
 
   // Sync Logic
   ipcMain.handle('sync:run', async () => {
