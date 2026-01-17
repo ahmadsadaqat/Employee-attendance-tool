@@ -125,41 +125,58 @@ async function frappeRequest<T>(
 
 /**
  * Register a device with Frappe
- * Creates new device or updates existing one (idempotent by ip_address)
+ * Creates new device or updates existing one (idempotent by device_id)
  */
 export async function registerDevice(
   device: LocalDevice,
   baseUrl: string,
   auth: FrappeAuthConfig,
 ): Promise<DeviceApiResult<FrappeDevice>> {
-  console.log(
-    `Frappe Device: Registering ${device.name} (${device.ip}:${device.port})`,
-  )
+  // Generate device_id from IP:port for uniqueness and idempotency
+  const deviceId = `${device.ip}:${device.port}`
 
-  const url = `${baseUrl.replace(/\/$/, '')}/api/method/attendance_bridge.api.device.register_device`
+  console.log(`Frappe Device: Registering ${device.name} (${deviceId})`)
+
+  const url = `${baseUrl.replace(/\/$/, '')}/api/method/attendance_bridge.api.devices.register_device`
   const headers = buildHeaders(auth)
 
   const payload = {
+    device_id: deviceId,
     device_name: device.name,
     ip_address: device.ip,
     port: device.port,
   }
 
-  const response = await frappeRequest<FrappeDevice>(
-    url,
-    'POST',
-    headers,
-    payload,
+  const response = await frappeRequest<any>(url, 'POST', headers, payload)
+
+  console.log(
+    'Frappe Device: Register response:',
+    JSON.stringify(response.data, null, 2),
   )
 
-  if (response.status >= 200 && response.status < 300 && response.data) {
+  // Check both HTTP status AND the success field in response
+  if (
+    response.status >= 200 &&
+    response.status < 300 &&
+    response.data?.success
+  ) {
     console.log(
       `Frappe Device: Registered successfully - ${response.data.device_id}`,
     )
-    return { success: true, data: response.data }
+    return {
+      success: true,
+      data: {
+        device_id: response.data.device_id,
+        device_name: device.name,
+        ip_address: device.ip,
+        port: device.port,
+        is_active: true,
+      },
+    }
   } else {
-    console.error(`Frappe Device: Registration failed - ${response.error}`)
-    return { success: false, error: response.error }
+    const errorMsg = response.data?.message || response.error || 'Unknown error'
+    console.error(`Frappe Device: Registration failed - ${errorMsg}`)
+    return { success: false, error: errorMsg }
   }
 }
 
@@ -175,11 +192,36 @@ export async function fetchDevices(
   const url = `${baseUrl.replace(/\/$/, '')}/api/method/attendance_bridge.api.devices.list_devices`
   const headers = buildHeaders(auth)
 
-  const response = await frappeRequest<FrappeDevice[]>(url, 'GET', headers)
+  const response = await frappeRequest<any>(url, 'GET', headers)
+
+  console.log(
+    'Frappe Device: Raw response:',
+    JSON.stringify(response.data, null, 2),
+  )
 
   if (response.status >= 200 && response.status < 300 && response.data) {
-    console.log(`Frappe Device: Fetched ${response.data.length} devices`)
-    return { success: true, data: response.data }
+    // Handle different response structures:
+    // 1. Direct array: [...]
+    // 2. Object with devices key: { devices: [...] }
+    // 3. Object with data key: { data: [...] }
+    let devices: FrappeDevice[] = []
+
+    if (Array.isArray(response.data)) {
+      devices = response.data
+    } else if (response.data.devices && Array.isArray(response.data.devices)) {
+      devices = response.data.devices
+    } else if (response.data.data && Array.isArray(response.data.data)) {
+      devices = response.data.data
+    } else {
+      console.warn(
+        'Frappe Device: Unexpected response structure:',
+        typeof response.data,
+      )
+      return { success: false, error: 'Unexpected response structure' }
+    }
+
+    console.log(`Frappe Device: Fetched ${devices.length} devices`)
+    return { success: true, data: devices }
   } else {
     console.error(`Frappe Device: Fetch failed - ${response.error}`)
     return { success: false, error: response.error }
@@ -196,7 +238,7 @@ export async function disableDevice(
 ): Promise<DeviceApiResult<boolean>> {
   console.log(`Frappe Device: Disabling ${deviceId}`)
 
-  const url = `${baseUrl.replace(/\/$/, '')}/api/method/attendance_bridge.api.device.disable_device`
+  const url = `${baseUrl.replace(/\/$/, '')}/api/method/attendance_bridge.api.devices.disable_device`
   const headers = buildHeaders(auth)
 
   const payload = { device_id: deviceId }
