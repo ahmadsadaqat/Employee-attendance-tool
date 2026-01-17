@@ -172,7 +172,7 @@ export async function fetchDevices(
 ): Promise<DeviceApiResult<FrappeDevice[]>> {
   console.log('Frappe Device: Fetching devices...')
 
-  const url = `${baseUrl.replace(/\/$/, '')}/api/method/attendance_bridge.api.device.list_devices`
+  const url = `${baseUrl.replace(/\/$/, '')}/api/method/attendance_bridge.api.devices.list_devices`
   const headers = buildHeaders(auth)
 
   const response = await frappeRequest<FrappeDevice[]>(url, 'GET', headers)
