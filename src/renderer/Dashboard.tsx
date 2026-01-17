@@ -94,13 +94,13 @@ const generateMockCheckIns = (count: number): CheckInRecord[] => {
       const rec = generateSingleCheckIn(Math.random() > 0.1)
       // Adjust timestamps for history
       rec.timestamp = new Date(
-        Date.now() - Math.floor(Math.random() * 10000000)
+        Date.now() - Math.floor(Math.random() * 10000000),
       ).toISOString()
       return rec
     })
     .sort(
       (a, b) =>
-        new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+        new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
     )
 }
 
@@ -259,7 +259,7 @@ export default function Dashboard({
       // Helper to find employee info
       const getEmpInfo = (id: string) => {
         const e = employees?.find(
-          (emp: any) => emp.name === id || emp.employee_name === id
+          (emp: any) => emp.name === id || emp.employee_name === id,
         )
         return {
           name: e?.employee_name || id,
@@ -267,7 +267,7 @@ export default function Dashboard({
           avatar: e?.image
             ? (window as any).frappeBaseUrl + e.image
             : `https://ui-avatars.com/api/?name=${encodeURIComponent(
-                e?.employee_name || id
+                e?.employee_name || id,
               )}&background=random`,
         }
       }
@@ -292,7 +292,7 @@ export default function Dashboard({
             : log.device_id || 'Unknown Device',
           location: 'Main Office',
           type: ['IN', 'In', 'CHECK IN', 'Check In'].includes(
-            isLocal ? log.status : log.log_type
+            isLocal ? log.status : log.log_type,
           )
             ? 'CHECK_IN'
             : 'CHECK_OUT',
@@ -306,7 +306,7 @@ export default function Dashboard({
       // 2. Process for Traffic Chart (Today's data)
       const today = new Date().toISOString().split('T')[0]
       const todaysLogs = mappedRecords.filter((r) =>
-        r.timestamp.startsWith(today)
+        r.timestamp.startsWith(today),
       )
 
       // Initialize hours 06:00 to 18:00
@@ -329,7 +329,7 @@ export default function Dashboard({
         ([time, count]) => ({
           time,
           count,
-        })
+        }),
       )
 
       // Calculate cumulative if needed, or just raw count.
@@ -362,7 +362,7 @@ export default function Dashboard({
   const addNotification = (
     message: string,
     severity: SystemAlert['severity'],
-    source: string = 'System'
+    source: string = 'System',
   ) => {
     const newAlert: SystemAlert = {
       id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
@@ -385,33 +385,33 @@ export default function Dashboard({
         addNotification(
           `Successfully synced ${result.synced} records to ERP`,
           'SUCCESS',
-          'ERP Integration'
+          'ERP Integration',
         )
         // Refresh local view
         setCheckIns((prev) =>
           prev.map((c) =>
-            result.syncedIds?.includes(c.id) ? { ...c, syncedToErp: true } : c
-          )
+            result.syncedIds?.includes(c.id) ? { ...c, syncedToErp: true } : c,
+          ),
         )
         refetchLogs()
       } else if (result?.errors?.length > 0) {
         addNotification(
           `Sync completed with errors: ${result.errors[0]}`,
           'WARNING',
-          'ERP Integration'
+          'ERP Integration',
         )
       } else if (!silent) {
         addNotification(
           'All records are already in sync',
           'SUCCESS',
-          'ERP Integration'
+          'ERP Integration',
         )
       }
     } catch (e: any) {
       addNotification(
         `Sync failed: ${e.message}`,
         'CRITICAL',
-        'ERP Integration'
+        'ERP Integration',
       )
     }
   }
@@ -428,7 +428,7 @@ export default function Dashboard({
         addNotification(
           `Synced ${count} logs from devices`,
           'SUCCESS',
-          'Device Sync'
+          'Device Sync',
         )
       } else if (count > 0 && options?.silent) {
         // Even in silent mode, if we found data, let the user know gently or debug
@@ -470,14 +470,14 @@ export default function Dashboard({
       setCheckIns((prev) =>
         [...withSyncState, ...prev].sort(
           (a, b) =>
-            new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-        )
+            new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
+        ),
       )
       setIsLoading(false)
       addNotification(
         `Imported ${count} logs from devices (${start} to ${end})`,
         'SUCCESS',
-        'Manual Import'
+        'Manual Import',
       )
     }, 1000)
   }
@@ -488,19 +488,19 @@ export default function Dashboard({
         device.name,
         device.ipAddress,
         Number(device.port),
-        {} // Options like commKey, useUdp can be added here if UI supports them
+        {}, // Options like commKey, useUdp can be added here if UI supports them
       )
       addNotification(
         `New device '${device.name}' added successfully`,
         'SUCCESS',
-        'Device Manager'
+        'Device Manager',
       )
       loadDevices()
     } catch (e: any) {
       addNotification(
         `Failed to add device: ${e.message}`,
         'CRITICAL',
-        'Device Manager'
+        'Device Manager',
       )
     }
   }
@@ -514,7 +514,7 @@ export default function Dashboard({
       addNotification(
         `Failed to remove device: ${e.message}`,
         'CRITICAL',
-        'Device Manager'
+        'Device Manager',
       )
     }
   }
@@ -524,7 +524,7 @@ export default function Dashboard({
     addNotification(
       'System configuration saved successfully',
       'SUCCESS',
-      'Settings'
+      'Settings',
     )
   }
 
@@ -542,89 +542,30 @@ export default function Dashboard({
     setAlerts([])
   }
 
-  // Auto-Restore on Mount (User Sign In)
-  useEffect(() => {
-    // Only trigger if we have no devices locally to prevent constant re-restoring?
-    // Or user asked "when user sign in the system should pull data".
-    // Let's do it always on mount of Dashboard (which is post-login).
-    // We can check if we already have devices to avoid redundant heavy pulls,
-    // but "pull logs" is also requested.
-    // Let's call it 'Sync with Cloud DB'.
-
-    const autoRestore = async () => {
-      // simple check: if no devices, definitely restore.
-      if (devices.length === 0) {
-        await handleRestoreFromCloud()
-      } else {
-        // If devices exist, maybe just try to pull logs or do a lighter sync?
-        // For now, full restore as per request "pull devices and access logs".
-        // We can just invoke it silently without the blocking loading state or notifications if preferred,
-        // but user wants to know it happens. Let's keep it visible or subtle.
-        // Given "system is online", let's be robust.
-        handleRestoreFromCloud()
-      }
-    }
-
-    // We add a small delay to ensure UI is ready
-    const timer = setTimeout(autoRestore, 1000)
-    return () => clearTimeout(timer)
-  }, []) // Run once on mount
-
-  const handleRestoreFromCloud = async () => {
-    setIsLoading(true)
-    addNotification(
-      'Restoring data from Cloud Database...',
-      'INFO',
-      'Cloud Sync'
-    )
-    try {
-      const result = await (window as any).api?.restoreFromCloud?.()
-      if (result?.success) {
-        addNotification(
-          `Restored ${result.devices} devices and ${result.logs} logs from Cloud`,
-          'SUCCESS',
-          'Cloud Sync'
-        )
-        loadDevices()
-        refetchLocalLogs()
-      } else {
-        throw new Error(result?.error || 'Unknown error')
-      }
-    } catch (e: any) {
-      addNotification(
-        `Failed to restore from Cloud: ${e.message}`,
-        'CRITICAL',
-        'Cloud Sync'
-      )
-    } finally {
-      setIsLoading(false)
-    }
-  }
-
   const handleConnectDevice = async (device: Device) => {
     try {
       addNotification(
         `Connecting to ${device.name}...`,
         'INFO',
-        'Device Manager'
+        'Device Manager',
       )
       const result = await (window as any).api?.testDevice?.(
         device.ipAddress,
-        Number(device.port)
+        Number(device.port),
       )
 
       if (result?.ok) {
         addNotification(
           `Successfully connected to ${device.name}`,
           'SUCCESS',
-          'Device Manager'
+          'Device Manager',
         )
         setDevices((prev) =>
           prev.map((d) =>
             d.id === device.id
               ? { ...d, status: 'ONLINE', lastPing: 'Just now' }
-              : d
-          )
+              : d,
+          ),
         )
 
         // Auto-fetch logs after connection
@@ -635,14 +576,14 @@ export default function Dashboard({
           const logsResult = await (window as any).api?.fetchLogs?.(
             device.ipAddress,
             Number(device.port),
-            device.name
+            device.name,
           )
 
           if (logsResult?.imported > 0) {
             addNotification(
               `Auto-fetched ${logsResult.imported} logs from ${device.name}`,
               'SUCCESS',
-              'Device Manager'
+              'Device Manager',
             )
             refetchLogs()
             await syncToERP(true)
@@ -650,7 +591,7 @@ export default function Dashboard({
             addNotification(
               `Connected to ${device.name}, no new logs found.`,
               'INFO',
-              'Device Manager'
+              'Device Manager',
             )
           }
         } catch (e: any) {
@@ -658,7 +599,7 @@ export default function Dashboard({
           addNotification(
             `Auto-fetch failed: ${e.message || 'Unknown error'}`,
             'WARNING',
-            'Device Manager'
+            'Device Manager',
           )
         }
       } else {
@@ -668,14 +609,14 @@ export default function Dashboard({
       addNotification(
         `Failed to connect to ${device.name}: ${e.message}`,
         'CRITICAL',
-        'Device Manager'
+        'Device Manager',
       )
       setDevices((prev) =>
         prev.map((d) =>
           d.id === device.id
             ? { ...d, status: 'OFFLINE', lastPing: 'Failed' }
-            : d
-        )
+            : d,
+        ),
       )
     }
   }
@@ -685,14 +626,14 @@ export default function Dashboard({
     try {
       const result = await (window as any).api.resetSyncStatusByDate(
         startDate,
-        endDate
+        endDate,
       )
 
       if (result.ok) {
         addNotification(
           `Marked ${result.updated} logs for resync. Please click "Push to ERP".`,
           'INFO',
-          'Sync Manager'
+          'Sync Manager',
         )
 
         // Trigger refetch to update UI status (changing Green 'Synced' to Yellow 'Pending')
@@ -701,7 +642,7 @@ export default function Dashboard({
         addNotification(
           'Failed to reset sync status.',
           'WARNING',
-          'Sync Manager'
+          'Sync Manager',
         )
       }
     } catch (e) {
@@ -840,8 +781,8 @@ export default function Dashboard({
                           device.status === 'ONLINE'
                             ? 'bg-green-50 dark:bg-green-900/30 text-green-600 dark:text-green-400'
                             : device.status === 'OFFLINE'
-                            ? 'bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400'
-                            : 'bg-amber-50 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400'
+                              ? 'bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400'
+                              : 'bg-amber-50 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400'
                         }`}
                       >
                         {device.type === 'BIOMETRIC' ? (
@@ -857,8 +798,8 @@ export default function Dashboard({
                           device.status === 'ONLINE'
                             ? 'bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-400 border-green-100 dark:border-green-800'
                             : device.status === 'OFFLINE'
-                            ? 'bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-400 border-red-100 dark:border-red-800'
-                            : 'bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 border-amber-100 dark:border-amber-800'
+                              ? 'bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-400 border-red-100 dark:border-red-800'
+                              : 'bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 border-amber-100 dark:border-amber-800'
                         }`}
                       >
                         <div
@@ -866,8 +807,8 @@ export default function Dashboard({
                             device.status === 'ONLINE'
                               ? 'bg-green-500'
                               : device.status === 'OFFLINE'
-                              ? 'bg-red-500'
-                              : 'bg-amber-500'
+                                ? 'bg-red-500'
+                                : 'bg-amber-500'
                           }`}
                         ></div>
                         {device.status}
@@ -1001,7 +942,6 @@ export default function Dashboard({
         currentView={currentView}
         setCurrentView={setCurrentView}
         currentUser={currentUser}
-        onRestoreFromCloud={handleRestoreFromCloud}
       />
 
       <div className='flex-1 flex flex-col overflow-hidden'>
@@ -1019,14 +959,14 @@ export default function Dashboard({
                 {currentView === 'dashboard'
                   ? 'Access Control Dashboard'
                   : currentView === 'devices'
-                  ? 'Device Management'
-                  : currentView === 'employees'
-                  ? 'Employee Directory'
-                  : currentView === 'logs'
-                  ? 'Access Logs'
-                  : currentView === 'profile'
-                  ? 'My Profile'
-                  : 'System Configuration'}
+                    ? 'Device Management'
+                    : currentView === 'employees'
+                      ? 'Employee Directory'
+                      : currentView === 'logs'
+                        ? 'Access Logs'
+                        : currentView === 'profile'
+                          ? 'My Profile'
+                          : 'System Configuration'}
               </h1>
               <p className='text-xs text-slate-500 dark:text-slate-400'>
                 Security Operations Center

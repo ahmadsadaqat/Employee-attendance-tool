@@ -16,7 +16,6 @@ interface SidebarProps {
   currentView: string
   setCurrentView: (view: string) => void
   currentUser: User | null
-  onRestoreFromCloud: () => void
 }
 
 const navItems = [
@@ -33,7 +32,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   currentView,
   setCurrentView,
   currentUser,
-  onRestoreFromCloud,
 }) => {
   if (!currentUser) return null
 
@@ -89,24 +87,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
               {item.label}
             </button>
           ))}
-
-          {/* Cloud Sync Button */}
-          <button
-            onClick={() => {
-              onRestoreFromCloud()
-              setIsOpen(false)
-            }}
-            className='w-full flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700 hover:text-slate-900 dark:hover:text-slate-200 transition-colors'
-          >
-            <div className='relative'>
-              <CloudUpload
-                size={20}
-                className='text-slate-400 dark:text-slate-500'
-              />
-              {/* Optional: Add a small badge if syncing or if needs sync */}
-            </div>
-            Cloud Sync
-          </button>
         </div>
 
         <div className='absolute bottom-0 left-0 right-0 p-4 border-t border-slate-100 dark:border-slate-700'>

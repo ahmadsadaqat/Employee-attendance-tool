@@ -18,6 +18,12 @@ import {
   isFrappeSyncEnabled,
   getFrappeBaseUrl,
 } from './frappe-sync'
+import {
+  registerDevice,
+  fetchDevices,
+  disableDevice,
+  mapFrappeToLocal,
+} from './frappe-device'
 
 // -------------------- GLOBAL SAFETY & CONFIG --------------------
 
@@ -262,7 +268,7 @@ app.whenReady().then(async () => {
     return count
   })
 
-  // Device CRUD
+  // Device CRUD (Phase 13: Frappe is source of truth, SQLite is cache)
   ipcMain.handle(
     'device:add',
     async (
@@ -276,6 +282,29 @@ app.whenReady().then(async () => {
       },
     ) => {
       const creds = await getCredentials()
+
+      // Try to register with Frappe first (source of truth)
+      if (creds?.baseUrl && creds?.auth) {
+        const result = await registerDevice(
+          {
+            name: d.name,
+            ip: d.ip,
+            port: d.port,
+            comm_key: d.commKey,
+            use_udp: d.useUdp ? 1 : 0,
+          },
+          creds.baseUrl,
+          creds.auth,
+        )
+        if (!result.success) {
+          console.warn(
+            'Frappe device registration failed, saving locally only:',
+            result.error,
+          )
+        }
+      }
+
+      // Always cache locally for offline use
       const id = Database.ensureDevice(
         d.name,
         d.ip,
@@ -290,12 +319,58 @@ app.whenReady().then(async () => {
 
   ipcMain.handle('device:list', async () => {
     const creds = await getCredentials()
+
+    // Try to fetch from Frappe (source of truth) and sync to local cache
+    if (creds?.baseUrl && creds?.auth) {
+      try {
+        const result = await fetchDevices(creds.baseUrl, creds.auth)
+        if (result.success && result.data) {
+          // Sync Frappe devices to local SQLite cache
+          for (const frappeDevice of result.data) {
+            if (frappeDevice.is_active) {
+              Database.ensureDevice(
+                frappeDevice.device_name,
+                frappeDevice.ip_address,
+                frappeDevice.port,
+                null,
+                0,
+                creds.baseUrl,
+              )
+            }
+          }
+          console.log(
+            `Synced ${result.data.length} devices from Frappe to local cache`,
+          )
+        }
+      } catch (e) {
+        console.warn(
+          'Failed to fetch devices from Frappe, using local cache:',
+          e,
+        )
+      }
+    }
+
+    // Return local cache (works offline)
     return Database.listDevices(creds?.baseUrl)
   })
 
   ipcMain.handle('device:remove', async (_e, id: number) => {
+    const creds = await getCredentials()
+
+    // Get device info before deleting locally
+    const device = Database.getDeviceById(id)
+
+    // Try to disable in Frappe first
+    if (device && creds?.baseUrl && creds?.auth) {
+      const deviceId = `${device.ip}:${device.port}` // Use IP:port as identifier
+      const result = await disableDevice(deviceId, creds.baseUrl, creds.auth)
+      if (!result.success) {
+        console.warn('Frappe device disable failed:', result.error)
+      }
+    }
+
+    // Always delete locally
     Database.deleteDevice(id)
-    // Note: Device deletion is local only. Cloud sync removed in Phase 12.
   })
 
   // Fetch logs from biometric device
