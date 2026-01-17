@@ -277,6 +277,7 @@ app.whenReady().then(async () => {
         name: string
         ip: string
         port: number
+        location?: string // Human-readable location for Frappe
         commKey?: string
         useUdp?: boolean
       },
@@ -290,6 +291,7 @@ app.whenReady().then(async () => {
             name: d.name,
             ip: d.ip,
             port: d.port,
+            location: d.location, // Pass location to Frappe
             comm_key: d.commKey,
             use_udp: d.useUdp ? 1 : 0,
           },
@@ -309,6 +311,7 @@ app.whenReady().then(async () => {
         d.name,
         d.ip,
         d.port,
+        d.location ?? null, // Human-readable location
         d.commKey ?? null,
         d.useUdp ? 1 : 0,
         creds?.baseUrl,
@@ -332,6 +335,7 @@ app.whenReady().then(async () => {
                 frappeDevice.device_name,
                 frappeDevice.ip_address,
                 frappeDevice.port,
+                (frappeDevice as any).location ?? null, // Location from Frappe
                 null,
                 0,
                 creds.baseUrl,
@@ -387,6 +391,7 @@ app.whenReady().then(async () => {
           deviceName,
           ip,
           port ?? 4370,
+          null, // location not available during log fetch
           commKey ?? null,
           useUdp ? 1 : 0,
           creds?.baseUrl,

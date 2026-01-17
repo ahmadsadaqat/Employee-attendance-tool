@@ -488,7 +488,7 @@ export default function Dashboard({
         device.name,
         device.ipAddress,
         Number(device.port),
-        {}, // Options like commKey, useUdp can be added here if UI supports them
+        { location: device.location }, // Pass location to Frappe
       )
       addNotification(
         `New device '${device.name}' added successfully`,

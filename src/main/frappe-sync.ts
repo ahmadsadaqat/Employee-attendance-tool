@@ -4,6 +4,7 @@
  * PURPOSE:
  * This module handles syncing attendance logs to the Frappe API.
  * Phase 12: Frappe is now the SOLE sync destination. Supabase removed.
+ * Phase 15: Sends device LOCATION instead of numeric device_id.
  *
  * BEHAVIOR:
  * - Logs are pushed to Frappe and marked synced on success
@@ -12,6 +13,7 @@
  */
 
 import { net } from 'electron'
+import { Database } from '../db/sqlite'
 
 export interface FrappeAuthConfig {
   sid?: string
@@ -97,14 +99,26 @@ export async function syncLogsToFrappe(
     }
 
     // Prepare payload matching expected Frappe API format
+    // Phase 15: Send device LOCATION instead of numeric device_id
     // The endpoint expects logs with: employee_id, timestamp, status (log_type), device_id
     const payload = {
-      logs: logs.map((log) => ({
-        employee_id: log.employee_id,
-        timestamp: log.timestamp,
-        log_type: log.status, // IN or OUT
-        device_id: String(log.device_id),
-      })),
+      logs: logs.map((log) => {
+        // Look up device to get location
+        const device = Database.getDeviceById(log.device_id)
+        const deviceLocation =
+          device?.location || device?.name || String(log.device_id)
+
+        console.log(
+          `Frappe Sync: Device ${log.device_id} -> location: "${device?.location}", name: "${device?.name}" -> sending: "${deviceLocation}"`,
+        )
+
+        return {
+          employee_id: log.employee_id,
+          timestamp: log.timestamp,
+          log_type: log.status, // IN or OUT
+          device_id: deviceLocation, // Send location, not numeric ID
+        }
+      }),
     }
 
     const url = `${baseUrl.replace(/\/$/, '')}/api/method/attendance_bridge.api.attendance.push_logs`

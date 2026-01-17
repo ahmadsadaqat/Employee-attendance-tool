@@ -8,7 +8,7 @@ contextBridge.exposeInMainWorld('api', {
     name: string,
     ip: string,
     port: number,
-    opts?: { commKey?: string; useUdp?: boolean },
+    opts?: { location?: string; commKey?: string; useUdp?: boolean },
   ) => ipcRenderer.invoke('device:add', { name, ip, port, ...(opts || {}) }),
   listDevices: () => ipcRenderer.invoke('device:list'),
   removeDevice: (id: number) => ipcRenderer.invoke('device:remove', id),

@@ -32,6 +32,7 @@ export interface LocalDevice {
   name: string
   ip: string
   port: number
+  location?: string // Human-readable location (e.g., "Building A, Floor 1")
   comm_key?: string | null
   use_udp?: number
   instance_url?: string
@@ -136,6 +137,7 @@ export async function registerDevice(
   const deviceId = `${device.ip}:${device.port}`
 
   console.log(`Frappe Device: Registering ${device.name} (${deviceId})`)
+  console.log(`Frappe Device: Location received: "${device.location}"`)
 
   const url = `${baseUrl.replace(/\/$/, '')}/api/method/attendance_bridge.api.devices.register_device`
   const headers = buildHeaders(auth)
@@ -145,7 +147,10 @@ export async function registerDevice(
     device_name: device.name,
     ip_address: device.ip,
     port: device.port,
+    location: device.location || '', // Send location to Frappe
   }
+
+  console.log('Frappe Device: Payload:', JSON.stringify(payload, null, 2))
 
   const response = await frappeRequest<any>(url, 'POST', headers, payload)
 
