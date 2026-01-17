@@ -14,14 +14,10 @@ import path from 'node:path'
 import Store from 'electron-store'
 import { FrappeApp } from 'frappe-js-sdk'
 import {
-  initSupabase,
-  testConnection,
-  syncDevices,
-  syncLogs,
-  pullDevices,
-  pullLogs,
-  deleteDevice,
-} from './supabase'
+  syncLogsToFrappe,
+  isFrappeSyncEnabled,
+  getFrappeBaseUrl,
+} from './frappe-sync'
 
 // -------------------- GLOBAL SAFETY & CONFIG --------------------
 
@@ -75,7 +71,7 @@ function setupAuthInjection(
     sid?: string
     apiKey?: string
     apiSecret?: string
-  } | null
+  } | null,
 ) {
   // If no auth provided, strictly exit (listener is already effectively cleared/overwritten below if we use the same filter context,
   // but to be safe lets explicitly clear specifically for the old URL if possible, or just use a global tracker).
@@ -85,7 +81,7 @@ function setupAuthInjection(
     console.log('Main process: Clearing auth injection')
     session.defaultSession.webRequest.onBeforeSendHeaders(
       { urls: ['*://*/*'] },
-      null
+      null,
     )
     return
   }
@@ -97,14 +93,12 @@ function setupAuthInjection(
     (details, callback) => {
       if (auth.mode === 'token' && auth.apiKey && auth.apiSecret) {
         // Inject Token Authorization header
-        details.requestHeaders[
-          'Authorization'
-        ] = `token ${auth.apiKey}:${auth.apiSecret}`
+        details.requestHeaders['Authorization'] =
+          `token ${auth.apiKey}:${auth.apiSecret}`
       } else if (auth.sid) {
         // Inject the session cookie as if it were a token
-        details.requestHeaders[
-          'Cookie'
-        ] = `sid=${auth.sid}; system_user=yes; user_id=Administrator`
+        details.requestHeaders['Cookie'] =
+          `sid=${auth.sid}; system_user=yes; user_id=Administrator`
       }
 
       // Only set Origin if needed, avoid setting Host as it's handled by the network stack
@@ -114,12 +108,12 @@ function setupAuthInjection(
 
       // console.log(`Main process: Injecting auth (${auth.mode || 'session'}) for ${details.url}`)
       callback({ requestHeaders: details.requestHeaders })
-    }
+    },
   )
   console.log(
     `Main process: Auth injection enabled for ${baseUrl} [Mode: ${
       auth.mode || 'session'
-    }]`
+    }]`,
   )
 }
 
@@ -129,7 +123,7 @@ function createTray() {
   const isWin = process.platform === 'win32'
   const iconPath = path.join(
     process.cwd(),
-    isWin ? 'assets/nexo-32x32.ico' : 'assets/nexo-32x32.png'
+    isWin ? 'assets/nexo-32x32.ico' : 'assets/nexo-32x32.png',
   )
   const trayIcon = nativeImage.createFromPath(iconPath)
 
@@ -167,7 +161,7 @@ function createWindow() {
   const isWin = process.platform === 'win32'
   const iconPath = path.join(
     process.cwd(),
-    isWin ? 'assets/nexo-256x256.ico' : 'assets/nexo-64x64.png'
+    isWin ? 'assets/nexo-256x256.ico' : 'assets/nexo-64x64.png',
   )
 
   win = new BrowserWindow({
@@ -259,7 +253,7 @@ app.whenReady().then(async () => {
     'device:test',
     async (_e, { ip, port }: { ip: string; port: number }) => {
       return ZKClient.testConnection(ip, port)
-    }
+    },
   )
 
   ipcMain.handle('data:cleanup', async (_, days: number) => {
@@ -279,7 +273,7 @@ app.whenReady().then(async () => {
         port: number
         commKey?: string
         useUdp?: boolean
-      }
+      },
     ) => {
       const creds = await getCredentials()
       const id = Database.ensureDevice(
@@ -288,10 +282,10 @@ app.whenReady().then(async () => {
         d.port,
         d.commKey ?? null,
         d.useUdp ? 1 : 0,
-        creds?.baseUrl
+        creds?.baseUrl,
       )
       return { id }
-    }
+    },
   )
 
   ipcMain.handle('device:list', async () => {
@@ -301,12 +295,7 @@ app.whenReady().then(async () => {
 
   ipcMain.handle('device:remove', async (_e, id: number) => {
     Database.deleteDevice(id)
-    // Also remove from Cloud if configured
-    try {
-      await deleteDevice(id)
-    } catch (e) {
-      console.warn('Main: Failed to delete device from Cloud:', e)
-    }
+    // Note: Device deletion is local only. Cloud sync removed in Phase 12.
   })
 
   // Fetch logs from biometric device
@@ -314,7 +303,7 @@ app.whenReady().then(async () => {
     'device:fetchLogs',
     async (
       _e,
-      { ip, port = 4370, name, commKey, useUdp, doublePunchThreshold }: any
+      { ip, port = 4370, name, commKey, useUdp, doublePunchThreshold }: any,
     ) => {
       try {
         const creds = await getCredentials()
@@ -325,7 +314,7 @@ app.whenReady().then(async () => {
           port ?? 4370,
           commKey ?? null,
           useUdp ? 1 : 0,
-          creds?.baseUrl
+          creds?.baseUrl,
         )
 
         const logs = await ZKClient.fetchLogs({ ip, port, commKey, useUdp })
@@ -334,7 +323,7 @@ app.whenReady().then(async () => {
         // Sort logs by timestamp ascending to ensure we process them in order
         logs.sort(
           (a: any, b: any) =>
-            new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+            new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
         )
 
         let imported = 0
@@ -353,7 +342,7 @@ app.whenReady().then(async () => {
               new Date(lastLog.timestamp).getTime()
             if (timeDiff < thresholdMs && timeDiff >= 0) {
               console.log(
-                `Main: Ignoring double punch for ${log.employee_id} within ${timeDiff}ms (Threshold: ${thresholdMs}ms)`
+                `Main: Ignoring double punch for ${log.employee_id} within ${timeDiff}ms (Threshold: ${thresholdMs}ms)`,
               )
               continue
             }
@@ -374,7 +363,7 @@ app.whenReady().then(async () => {
           if (id) imported += 1
         }
         console.log(
-          `Main: Imported ${imported} new logs into DB (others ignored)`
+          `Main: Imported ${imported} new logs into DB (others ignored)`,
         )
 
         return { imported }
@@ -388,7 +377,7 @@ app.whenReady().then(async () => {
         console.error("Error occurred in handler for 'device:fetchLogs':", e)
         return { imported: 0, error: msg }
       }
-    }
+    },
   )
 
   // Attendance
@@ -397,17 +386,17 @@ app.whenReady().then(async () => {
     async (_e, { limit = 100 } = { limit: 100 }) => {
       const creds = await getCredentials()
       return Database.listAttendance(limit, creds?.baseUrl)
-    }
+    },
   )
 
   ipcMain.handle(
     'attendance:listByDevice',
     async (
       _e,
-      { deviceId, limit = 100 }: { deviceId: number; limit?: number }
+      { deviceId, limit = 100 }: { deviceId: number; limit?: number },
     ) => {
       return Database.listAttendanceByDevice(deviceId, limit)
-    }
+    },
   )
 
   ipcMain.handle('attendance:unsynced', async () => {
@@ -430,7 +419,7 @@ app.whenReady().then(async () => {
     async (_e, { startDate, endDate }) => {
       const result = Database.resetSyncStatusByDate(startDate, endDate)
       return { ok: true, updated: result.changes }
-    }
+    },
   )
 
   // Sync Logic
@@ -447,7 +436,7 @@ app.whenReady().then(async () => {
     // Get unsynced from DB filtered by instance URL
     const unsynced = Database.getUnsynced(100, creds.baseUrl)
     console.log(
-      `Main: Found ${unsynced.length} unsynced records for ${creds.baseUrl}`
+      `Main: Found ${unsynced.length} unsynced records for ${creds.baseUrl}`,
     )
 
     if (!unsynced.length) return { synced: 0, errors: [] }
@@ -460,7 +449,7 @@ app.whenReady().then(async () => {
     const frappeRequest = async (
       endpoint: string,
       method: string = 'GET',
-      body?: any
+      body?: any,
     ) => {
       const headers: Record<string, string> = {
         'Content-Type': 'application/json',
@@ -514,7 +503,7 @@ app.whenReady().then(async () => {
         }
       }
       console.log(
-        `Main: Mapped ${employeeMap.size} employees with biometric IDs`
+        `Main: Mapped ${employeeMap.size} employees with biometric IDs`,
       )
     } catch (e: any) {
       console.error('Main: Failed to fetch employee mapping', e)
@@ -531,7 +520,7 @@ app.whenReady().then(async () => {
 
         if (!realEmployeeId) {
           throw new Error(
-            `No Employee found in ERP with Attendance Device ID '${u.employee_id}'`
+            `No Employee found in ERP with Attendance Device ID '${u.employee_id}'`,
           )
         }
 
@@ -573,7 +562,7 @@ app.whenReady().then(async () => {
     console.log(
       `Main: Sync complete. Synced: ${syncedIds.length}, Errors: ${
         results.filter((r) => !r.ok).length
-      }`
+      }`,
     )
 
     return {
@@ -599,14 +588,14 @@ app.whenReady().then(async () => {
         } else {
           store.set('erp-credentials', data)
           console.warn(
-            'Main process: Encryption unavailable, saved as plain text'
+            'Main process: Encryption unavailable, saved as plain text',
           )
         }
       } catch (e) {
         console.error('Main process: Failed to save credentials:', e)
         throw e
       }
-    }
+    },
   )
 
   ipcMain.handle('credentials:get', async () => {
@@ -629,7 +618,7 @@ app.whenReady().then(async () => {
 
       request.on('response', (response) => {
         console.log(
-          `Main process: Login response status: ${response.statusCode}`
+          `Main process: Login response status: ${response.statusCode}`,
         )
 
         // Collect body first, then decide
@@ -683,8 +672,8 @@ app.whenReady().then(async () => {
             if (!sid) {
               reject(
                 new Error(
-                  'Login successful but no session ID (sid) found in cookies'
-                )
+                  'Login successful but no session ID (sid) found in cookies',
+                ),
               )
               return
             }
@@ -735,8 +724,8 @@ app.whenReady().then(async () => {
         if (response.statusCode !== 200) {
           reject(
             new Error(
-              `Token verification failed with status ${response.statusCode}`
-            )
+              `Token verification failed with status ${response.statusCode}`,
+            ),
           )
           return
         }
@@ -804,35 +793,8 @@ app.whenReady().then(async () => {
     }
   })
 
-  // -------------------- SUPABASE HANDLERS --------------------
-
-  // -------------------- SUPABASE HANDLERS --------------------
-
-  // -------------------- SUPABASE HANDLERS --------------------
-
-  // Load from Env
-  const supabaseUrl = process.env.SUPABASE_URL
-  const supabaseKey = process.env.SUPABASE_PUBLISHABLE_DEFAULT_KEY
-
-  if (supabaseUrl && supabaseKey) {
-    console.log('Main: Initializing Supabase from .env')
-    initSupabase(supabaseUrl, supabaseKey)
-  } else {
-    console.warn('Main: Supabase credentials missing in .env')
-  }
-
-  ipcMain.handle('supabase:get-config', () => {
-    return {
-      configured: !!(supabaseUrl && supabaseKey),
-      url: supabaseUrl,
-    }
-  })
-
-  ipcMain.handle('supabase:test', async () => {
-    return testConnection()
-  })
-
   // -------------------- AUTO SYNC LOOP --------------------
+  // Phase 12: Frappe is now the sole sync destination. Supabase removed.
 
   let autoSyncInterval: NodeJS.Timeout | null = null
   let currentSyncInterval = 60 // Default 60s
@@ -844,33 +806,49 @@ app.whenReady().then(async () => {
   }
 
   const runAutoSync = async () => {
-    // 1. Check if configured
-    if (
-      !process.env.SUPABASE_URL ||
-      !process.env.SUPABASE_PUBLISHABLE_DEFAULT_KEY
-    )
-      return
-
-    // 2. Check online status (optional optimization)
+    // 1. Check online status first
     const { default: isOnline } = await import('is-online')
     if (!(await isOnline({ timeout: 2000 }))) return
 
-    try {
-      // 3. Sync Devices First (to avoid FK errors)
-      const devices = Database.listDevices()
-      if (devices.length > 0) {
-        await syncDevices(devices)
-      }
+    // 2. Check if Frappe sync is enabled
+    if (!isFrappeSyncEnabled()) {
+      return
+    }
 
-      // 4. Get unsynced logs
-      const logs = Database.getUnsynced(100) // Sync batch of 100
-      if (logs.length > 0) {
-        console.log(`AutoSync: Found ${logs.length} unsynced logs. Syncing...`)
-        const syncedIds = await syncLogs(logs)
-        if (syncedIds && syncedIds.length > 0) {
-          Database.markSynced(syncedIds)
-          console.log(`AutoSync: Marked ${syncedIds.length} logs as synced.`)
-        }
+    // 3. Get credentials for auth
+    const creds = await getCredentials()
+    if (!creds) {
+      console.log('AutoSync: Skipped - no credentials')
+      return
+    }
+
+    // 4. Determine base URL
+    const baseUrl = getFrappeBaseUrl(creds.baseUrl)
+    if (!baseUrl) {
+      console.log('AutoSync: Skipped - no base URL configured')
+      return
+    }
+
+    // 5. Get unsynced logs
+    const logs = Database.getUnsynced(100, creds.baseUrl)
+    if (logs.length === 0) {
+      return
+    }
+
+    console.log(`AutoSync: Pushing ${logs.length} logs to Frappe at ${baseUrl}`)
+
+    try {
+      // 6. Push to Frappe API
+      const result = await syncLogsToFrappe(logs, baseUrl, creds.auth)
+
+      if (result.success && result.syncedIds && result.syncedIds.length > 0) {
+        // 7. Mark logs as synced ONLY after successful Frappe response
+        Database.markSynced(result.syncedIds)
+        console.log(
+          `AutoSync: Marked ${result.syncedIds.length} logs as synced.`,
+        )
+      } else if (result.errors.length > 0) {
+        console.warn('AutoSync: Completed with errors:', result.errors)
       }
     } catch (e) {
       console.error('AutoSync Error:', e)
@@ -888,67 +866,59 @@ app.whenReady().then(async () => {
   startAutoSync(currentSyncInterval)
 
   // IPC to update interval
-  ipcMain.handle('supabase:set-interval', (_e, seconds: number) => {
+  ipcMain.handle('sync:set-interval', (_e, seconds: number) => {
     if (seconds < 60) seconds = 60
     store.set('cloudSyncInterval', seconds)
     startAutoSync(seconds)
     return true
   })
 
-  ipcMain.handle('supabase:restore', async () => {
-    try {
-      const creds = await getCredentials()
+  // -------------------- FRAPPE SYNC HANDLERS --------------------
+  // Frappe is now the sole remote sync destination (Phase 12)
 
-      // 1. Restore Devices
-      const remoteDevices = await pullDevices()
-      let devicesRestored = 0
-      for (const d of remoteDevices) {
-        // Note: 'd.ip' might be 'ip_address' depending on schema, but pullDevices uses select * from devices.
-        // Assuming Supabase schema matches what we need or syncDevices sent.
-        Database.ensureDevice(
-          d.name,
-          d.ip,
-          d.port,
-          null,
-          0,
-          creds?.baseUrl,
-          d.id
-        )
-        devicesRestored++
-      }
-
-      // 2. Restore Logs
-      const remoteLogs = await pullLogs(1000) // Limit 1000
-      let logsRestored = 0
-      for (const l of remoteLogs) {
-        Database.insertAttendance({
-          device_id: Number(l.device_id),
-          employee_id: l.employee_id,
-          timestamp: l.timestamp,
-          status: l.status,
-          synced: 1,
-        })
-        logsRestored++
-      }
-
-      return { success: true, devices: devicesRestored, logs: logsRestored }
-    } catch (e: any) {
-      console.error('Supabase restore failed:', e)
-      return { success: false, error: e.message }
+  ipcMain.handle('frappe:get-config', () => {
+    return {
+      enabled: isFrappeSyncEnabled(),
+      baseUrl: getFrappeBaseUrl(),
     }
   })
 
-  ipcMain.handle('supabase:sync', async () => {
+  ipcMain.handle('frappe:sync', async () => {
+    console.log('Main: Manual Frappe sync triggered')
+
+    if (!isFrappeSyncEnabled()) {
+      return {
+        success: false,
+        error: 'Frappe sync is disabled. Set FRAPPE_SYNC_ENABLED=true in .env',
+      }
+    }
+
     try {
-      const devices = Database.listDevices()
-      await syncDevices(devices)
+      const creds = await getCredentials()
+      if (!creds) {
+        return { success: false, error: 'No credentials stored' }
+      }
 
-      // Trigger the auto-sync logic for logs
-      await runAutoSync()
+      const baseUrl = getFrappeBaseUrl(creds.baseUrl)
+      if (!baseUrl) {
+        return { success: false, error: 'No Frappe base URL configured' }
+      }
 
-      return { success: true, count: 0 } // Count not returned by runAutoSync easily, but that's fine
+      const logs = Database.getUnsynced(100, creds.baseUrl)
+      if (logs.length === 0) {
+        return { success: true, pushed: 0, message: 'No unsynced logs' }
+      }
+
+      const result = await syncLogsToFrappe(logs, baseUrl, creds.auth)
+
+      // Mark synced if successful
+      if (result.success && result.syncedIds && result.syncedIds.length > 0) {
+        Database.markSynced(result.syncedIds)
+      }
+
+      return result
     } catch (e: any) {
-      console.error('Supabase sync failed:', e)
+      console.error('Main: Manual Frappe sync error:', e)
       return { success: false, error: e.message }
     }
   })

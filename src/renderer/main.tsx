@@ -14,7 +14,6 @@ import { Logo } from './Logo'
 import { Mail, Lock, ArrowRight, AlertCircle, Globe, Key } from 'lucide-react'
 import Dashboard from './Dashboard'
 
-
 type Stats = { total: number; unsynced: number; today: number }
 
 // Custom hook to check auth status manually
@@ -35,20 +34,22 @@ function useCustomAuth(onUrlChange: (url: string) => void) {
         ;(window as any).frappeRealUrl = creds.baseUrl
 
         // Manual verification
-        const res = await fetch(`${creds.baseUrl}/api/method/frappe.auth.get_logged_user`)
+        const res = await fetch(
+          `${creds.baseUrl}/api/method/frappe.auth.get_logged_user`,
+        )
         if (res.status === 200) {
-           const json = await res.json()
-           // Standard Frappe response: { message: "Administrator" }
-           if (json.message && json.message !== 'Guest') {
-             setCurrentUser(json.message)
-             window.api?.log('info', 'Auth check success:', json.message)
-           } else {
-             setCurrentUser(null)
-             window.api?.log('info', 'Auth check returned Guest or invalid user')
-           }
+          const json = await res.json()
+          // Standard Frappe response: { message: "Administrator" }
+          if (json.message && json.message !== 'Guest') {
+            setCurrentUser(json.message)
+            window.api?.log('info', 'Auth check success:', json.message)
+          } else {
+            setCurrentUser(null)
+            window.api?.log('info', 'Auth check returned Guest or invalid user')
+          }
         } else {
-           setCurrentUser(null)
-           window.api?.log('warn', 'Auth check failed with status:', res.status)
+          setCurrentUser(null)
+          window.api?.log('warn', 'Auth check failed with status:', res.status)
         }
       } else {
         window.api?.log('info', 'No credentials found')
@@ -73,7 +74,8 @@ function useCustomAuth(onUrlChange: (url: string) => void) {
 }
 
 function App({ onUrlChange }: { onUrlChange: (url: string) => void }) {
-  const { currentUser, isLoading, error, checkAuth } = useCustomAuth(onUrlChange)
+  const { currentUser, isLoading, error, checkAuth } =
+    useCustomAuth(onUrlChange)
   const { logout: sdkLogout } = useFrappeAuth() // Still use SDK's logout if useful, or implement custom
 
   // Custom logout handler
@@ -126,15 +128,15 @@ function Login({ onUrlChange }: { onUrlChange: (url: string) => void }) {
         if (creds) {
           if (creds.baseUrl) setUrl(creds.baseUrl)
           if (creds.auth) {
-              if (creds.auth.mode === 'token') {
-                  setMode('token')
-                  if (creds.auth.apiKey) setApiKey(creds.auth.apiKey)
-                  if (creds.auth.apiSecret) setApiSecret(creds.auth.apiSecret)
-              } else {
-                  setMode('password')
-                  if (creds.auth.username) setEmail(creds.auth.username)
-                  if (creds.auth.password) setPassword(creds.auth.password)
-              }
+            if (creds.auth.mode === 'token') {
+              setMode('token')
+              if (creds.auth.apiKey) setApiKey(creds.auth.apiKey)
+              if (creds.auth.apiSecret) setApiSecret(creds.auth.apiSecret)
+            } else {
+              setMode('password')
+              if (creds.auth.username) setEmail(creds.auth.username)
+              if (creds.auth.password) setPassword(creds.auth.password)
+            }
           }
           setRememberMe(true)
         }
@@ -165,11 +167,11 @@ function Login({ onUrlChange }: { onUrlChange: (url: string) => void }) {
 
       let result
       if (mode === 'token') {
-          // Token Login
-          result = await window.api!.loginWithToken(url, apiKey, apiSecret)
+        // Token Login
+        result = await window.api!.loginWithToken(url, apiKey, apiSecret)
       } else {
-          // Password Login
-          result = await window.api!.login(url, email, password)
+        // Password Login
+        result = await window.api!.login(url, email, password)
       }
 
       console.log('Login result:', result)
@@ -228,9 +230,9 @@ function Login({ onUrlChange }: { onUrlChange: (url: string) => void }) {
         {/* Form Section */}
         <div className='px-8 pb-8'>
           {/* Mode Toggle */}
-          <div className="flex p-1 mb-6 bg-slate-100 dark:bg-slate-900 rounded-xl">
+          <div className='flex p-1 mb-6 bg-slate-100 dark:bg-slate-900 rounded-xl'>
             <button
-              type="button"
+              type='button'
               onClick={() => setMode('password')}
               className={`flex-1 py-2 text-sm font-medium rounded-lg transition-all ${
                 mode === 'password'
@@ -241,7 +243,7 @@ function Login({ onUrlChange }: { onUrlChange: (url: string) => void }) {
               Password
             </button>
             <button
-              type="button"
+              type='button'
               onClick={() => setMode('token')}
               className={`flex-1 py-2 text-sm font-medium rounded-lg transition-all ${
                 mode === 'token'
@@ -281,87 +283,86 @@ function Login({ onUrlChange }: { onUrlChange: (url: string) => void }) {
             </div>
 
             {mode === 'password' ? (
-                <>
-                    <div>
-                    <label className='block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5'>
-                        Email Address
-                    </label>
-                    <div className='relative'>
-                        <div className='absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none'>
-                        <Mail size={18} className='text-slate-400' />
-                        </div>
-                        <input
-                        type='text'
-                        required
-                        value={email}
-                        onChange={(e) => setEmail(e.target.value)}
-                        className='block w-full pl-10 pr-3 py-2.5 border border-slate-300 dark:border-slate-600 rounded-xl bg-white dark:bg-slate-900 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all sm:text-sm'
-                        placeholder='name@company.com'
-                        />
+              <>
+                <div>
+                  <label className='block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5'>
+                    Email Address
+                  </label>
+                  <div className='relative'>
+                    <div className='absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none'>
+                      <Mail size={18} className='text-slate-400' />
                     </div>
-                    </div>
+                    <input
+                      type='text'
+                      required
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      className='block w-full pl-10 pr-3 py-2.5 border border-slate-300 dark:border-slate-600 rounded-xl bg-white dark:bg-slate-900 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all sm:text-sm'
+                      placeholder='name@company.com'
+                    />
+                  </div>
+                </div>
 
-                    <div>
-                    <label className='block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5'>
-                        Password
-                    </label>
-                    <div className='relative'>
-                        <div className='absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none'>
-                        <Lock size={18} className='text-slate-400' />
-                        </div>
-                        <input
-                        type='password'
-                        required
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        className='block w-full pl-10 pr-3 py-2.5 border border-slate-300 dark:border-slate-600 rounded-xl bg-white dark:bg-slate-900 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all sm:text-sm'
-                        placeholder='••••••••'
-                        />
+                <div>
+                  <label className='block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5'>
+                    Password
+                  </label>
+                  <div className='relative'>
+                    <div className='absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none'>
+                      <Lock size={18} className='text-slate-400' />
                     </div>
-                    </div>
-                </>
+                    <input
+                      type='password'
+                      required
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      className='block w-full pl-10 pr-3 py-2.5 border border-slate-300 dark:border-slate-600 rounded-xl bg-white dark:bg-slate-900 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all sm:text-sm'
+                      placeholder='••••••••'
+                    />
+                  </div>
+                </div>
+              </>
             ) : (
-                <>
-                     <div>
-                    <label className='block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5'>
-                        API Key
-                    </label>
-                    <div className='relative'>
-                        <div className='absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none'>
-                        <Key size={18} className='text-slate-400' />
-                        </div>
-                        <input
-                        type='text'
-                        required
-                        value={apiKey}
-                        onChange={(e) => setApiKey(e.target.value)}
-                        className='block w-full pl-10 pr-3 py-2.5 border border-slate-300 dark:border-slate-600 rounded-xl bg-white dark:bg-slate-900 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all sm:text-sm font-mono'
-                        placeholder='e.g. 394857398457'
-                        />
+              <>
+                <div>
+                  <label className='block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5'>
+                    API Key
+                  </label>
+                  <div className='relative'>
+                    <div className='absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none'>
+                      <Key size={18} className='text-slate-400' />
                     </div>
-                    </div>
+                    <input
+                      type='text'
+                      required
+                      value={apiKey}
+                      onChange={(e) => setApiKey(e.target.value)}
+                      className='block w-full pl-10 pr-3 py-2.5 border border-slate-300 dark:border-slate-600 rounded-xl bg-white dark:bg-slate-900 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all sm:text-sm font-mono'
+                      placeholder='e.g. 394857398457'
+                    />
+                  </div>
+                </div>
 
-                    <div>
-                    <label className='block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5'>
-                        API Secret
-                    </label>
-                    <div className='relative'>
-                        <div className='absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none'>
-                        <Lock size={18} className='text-slate-400' />
-                        </div>
-                        <input
-                        type='password'
-                        required
-                        value={apiSecret}
-                        onChange={(e) => setApiSecret(e.target.value)}
-                        className='block w-full pl-10 pr-3 py-2.5 border border-slate-300 dark:border-slate-600 rounded-xl bg-white dark:bg-slate-900 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all sm:text-sm font-mono'
-                        placeholder='••••••••'
-                        />
+                <div>
+                  <label className='block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5'>
+                    API Secret
+                  </label>
+                  <div className='relative'>
+                    <div className='absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none'>
+                      <Lock size={18} className='text-slate-400' />
                     </div>
-                    </div>
-                </>
+                    <input
+                      type='password'
+                      required
+                      value={apiSecret}
+                      onChange={(e) => setApiSecret(e.target.value)}
+                      className='block w-full pl-10 pr-3 py-2.5 border border-slate-300 dark:border-slate-600 rounded-xl bg-white dark:bg-slate-900 text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all sm:text-sm font-mono'
+                      placeholder='••••••••'
+                    />
+                  </div>
+                </div>
+              </>
             )}
-
 
             <button
               type='submit'
@@ -372,7 +373,8 @@ function Login({ onUrlChange }: { onUrlChange: (url: string) => void }) {
                 <div className='w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin' />
               ) : (
                 <>
-                  {mode === 'password' ? 'Sign In' : 'Connect Instance'} <ArrowRight size={16} />
+                  {mode === 'password' ? 'Sign In' : 'Connect Instance'}{' '}
+                  <ArrowRight size={16} />
                 </>
               )}
             </button>
@@ -413,7 +415,7 @@ function Login({ onUrlChange }: { onUrlChange: (url: string) => void }) {
 // Create a wrapper component that can handle URL changes
 function AppWrapper() {
   const [frappeUrl, setFrappeUrl] = useState<string>(
-    'https://portal.nexo4erp.com'
+    'https://portal.nexo4erp.com',
   )
   const [isUrlLoaded, setIsUrlLoaded] = useState(false)
 
@@ -444,7 +446,7 @@ function AppWrapper() {
         setFrappeUrl(newUrl)
       }
     },
-    [frappeUrl]
+    [frappeUrl],
   )
 
   // Use the real URL directly. Main Process handles auth injection and CORS is disabled.
@@ -454,7 +456,7 @@ function AppWrapper() {
     ;(window as any).frappeRealUrl = frappeUrl // Store real URL for the proxy header injection
   }, [providerUrl, frappeUrl])
 
-const queryClient = new QueryClient()
+  const queryClient = new QueryClient()
 
   if (!isUrlLoaded) {
     return (
@@ -485,14 +487,14 @@ declare global {
       getStats: () => Promise<Stats>
       testDevice: (
         ip: string,
-        port: number
+        port: number,
       ) => Promise<{ ok: boolean; error?: string }>
       fetchLogs: (
         ip: string,
         port?: number,
         name?: string,
         commKey?: string,
-        useUdp?: boolean
+        useUdp?: boolean,
       ) => Promise<{ imported: number; error?: string }>
       listAttendance: (limit?: number) => Promise<
         {
@@ -505,7 +507,7 @@ declare global {
       >
       listAttendanceByDevice: (
         deviceId: number,
-        limit?: number
+        limit?: number,
       ) => Promise<
         {
           id: number
@@ -525,7 +527,7 @@ declare global {
         }[]
       >
       markAttendanceSynced: (
-        ids: number[]
+        ids: number[],
       ) => Promise<{ ok: true; updated: number }>
       listDevices: () => Promise<
         {
@@ -541,18 +543,18 @@ declare global {
         name: string,
         ip: string,
         port: number,
-        opts?: { commKey?: string; useUdp?: boolean }
+        opts?: { commKey?: string; useUdp?: boolean },
       ) => Promise<{ id: number }>
-      getSupabaseConfig: () => Promise<{ url: string; key: string } | null>
-      testSupabase: () => Promise<boolean>
-      syncSupabase: () => Promise<{ success: boolean; count?: number; error?: string }>
-      setSupabaseInterval: (seconds: number) => Promise<boolean>
       removeDevice: (id: number) => Promise<void>
       runSync: () => Promise<{ synced: number; errors: string[] }>
       setCredentials: (baseUrl: string, auth: any) => Promise<void>
       getCredentials: () => Promise<{ baseUrl: string; auth: any } | null>
       login: (url: string, usr: string, pwd: string) => Promise<any>
-      loginWithToken: (url: string, apiKey: string, apiSecret: string) => Promise<any>
+      loginWithToken: (
+        url: string,
+        apiKey: string,
+        apiSecret: string,
+      ) => Promise<any>
       logout: () => Promise<boolean>
       getNetworkStatus: () => Promise<boolean>
       log: (level: string, ...args: any[]) => void

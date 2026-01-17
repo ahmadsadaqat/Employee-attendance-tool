@@ -73,9 +73,7 @@ export interface AppSettings {
   alertThreshold: 'LOW' | 'MEDIUM' | 'HIGH'
   darkMode: boolean
   retentionDays: number
-  supabaseUrl?: string
-  supabaseKey?: string
-  cloudSyncInterval?: number // Seconds, default 60
+  syncIntervalSeconds?: number // Seconds, default 60 (Frappe sync interval)
   deviceFetchIntervalSeconds?: number // Seconds, default 60 (30s - 300s)
   doublePunchThresholdSeconds?: number // Seconds, default 60
 }

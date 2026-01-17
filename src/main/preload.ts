@@ -8,7 +8,7 @@ contextBridge.exposeInMainWorld('api', {
     name: string,
     ip: string,
     port: number,
-    opts?: { commKey?: string; useUdp?: boolean }
+    opts?: { commKey?: string; useUdp?: boolean },
   ) => ipcRenderer.invoke('device:add', { name, ip, port, ...(opts || {}) }),
   listDevices: () => ipcRenderer.invoke('device:list'),
   removeDevice: (id: number) => ipcRenderer.invoke('device:remove', id),
@@ -18,7 +18,7 @@ contextBridge.exposeInMainWorld('api', {
     name?: string,
     commKey?: string,
     useUdp?: boolean,
-    options?: { doublePunchThreshold?: number }
+    options?: { doublePunchThreshold?: number },
   ) =>
     ipcRenderer.invoke('device:fetchLogs', {
       ip,
@@ -55,9 +55,9 @@ contextBridge.exposeInMainWorld('api', {
   log: (level: string, ...args: any[]) =>
     ipcRenderer.send('log', level, ...args),
   cleanupData: (days: number) => ipcRenderer.invoke('data:cleanup', days),
-  // Cloud / Supabase
-  restoreFromCloud: () => ipcRenderer.invoke('supabase:restore'),
-  syncToCloud: () => ipcRenderer.invoke('supabase:sync'),
-  setCloudSyncInterval: (seconds: number) =>
-    ipcRenderer.invoke('supabase:set-interval', seconds),
+  // Frappe Sync (Phase 12 - sole sync destination)
+  getFrappeSyncConfig: () => ipcRenderer.invoke('frappe:get-config'),
+  syncToFrappe: () => ipcRenderer.invoke('frappe:sync'),
+  setSyncInterval: (seconds: number) =>
+    ipcRenderer.invoke('sync:set-interval', seconds),
 })
