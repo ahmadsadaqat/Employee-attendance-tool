@@ -99,24 +99,19 @@ export async function syncLogsToFrappe(
     }
 
     // Prepare payload matching expected Frappe API format
-    // Phase 15: Send device LOCATION instead of numeric device_id
-    // The endpoint expects logs with: employee_id, timestamp, status (log_type), device_id
+    // The endpoint expects logs with: employee_id, timestamp, log_type, device_id, device_location
     const payload = {
       logs: logs.map((log) => {
-        // Look up device to get location
+        // Look up device to get location for the custom field
         const device = Database.getDeviceById(log.device_id)
-        const deviceLocation =
-          device?.location || device?.name || String(log.device_id)
-
-        console.log(
-          `Frappe Sync: Device ${log.device_id} -> location: "${device?.location}", name: "${device?.name}" -> sending: "${deviceLocation}"`,
-        )
+        const deviceLocation = device?.location || ''
 
         return {
           employee_id: log.employee_id,
           timestamp: log.timestamp,
           log_type: log.status, // IN or OUT
-          device_id: deviceLocation, // Send location, not numeric ID
+          device_id: String(log.device_id), // Send numeric device ID
+          device_location: deviceLocation, // Send location for custom field
         }
       }),
     }
