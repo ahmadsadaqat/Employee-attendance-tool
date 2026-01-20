@@ -63,7 +63,13 @@ export const AccessLogList: React.FC<AccessLogListProps> = ({
       log.device,
       log.location,
       log.type,
-      log.syncedToErp ? 'Yes' : 'No',
+      log.syncStatus === 1
+        ? 'Synced'
+        : log.syncStatus === 2
+          ? 'Duplicate'
+          : log.syncStatus === 3
+            ? 'Error'
+            : 'Pending',
     ])
 
     const csvContent = [
@@ -77,7 +83,7 @@ export const AccessLogList: React.FC<AccessLogListProps> = ({
     link.href = url
     link.setAttribute(
       'download',
-      `access_logs_${new Date().toISOString().split('T')[0]}.csv`
+      `access_logs_${new Date().toISOString().split('T')[0]}.csv`,
     )
     document.body.appendChild(link)
     link.click()
@@ -104,7 +110,7 @@ export const AccessLogList: React.FC<AccessLogListProps> = ({
   const startRange = count === 0 ? 0 : page * rowsPerPage + 1
   const endRange = Math.min((page + 1) * rowsPerPage, count)
 
-  const pendingCount = logs.filter((l) => !l.syncedToErp).length
+  const pendingCount = logs.filter((l) => l.syncStatus === 0).length
 
   return (
     <div className='space-y-6'>
@@ -254,10 +260,20 @@ export const AccessLogList: React.FC<AccessLogListProps> = ({
                       </span>
                     </td>
                     <td className='px-6 py-4 text-right'>
-                      {log.syncedToErp ? (
+                      {log.syncStatus === 1 ? (
                         <span className='inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/30 px-2.5 py-1 rounded-md border border-emerald-200 dark:border-emerald-800'>
                           <CheckCircle2 size={14} />
                           Synced
+                        </span>
+                      ) : log.syncStatus === 2 ? (
+                        <span className='inline-flex items-center gap-1.5 text-xs font-bold text-blue-700 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 px-2.5 py-1 rounded-md border border-blue-200 dark:border-blue-800'>
+                          <CheckCircle2 size={14} />
+                          Duplicate
+                        </span>
+                      ) : log.syncStatus === 3 ? (
+                        <span className='inline-flex items-center gap-1.5 text-xs font-bold text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-900/30 px-2.5 py-1 rounded-md border border-red-200 dark:border-red-800'>
+                          <Clock size={14} />
+                          Error
                         </span>
                       ) : (
                         <span className='inline-flex items-center gap-1.5 text-xs font-bold text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/30 px-2.5 py-1 rounded-md border border-amber-200 dark:border-amber-800'>

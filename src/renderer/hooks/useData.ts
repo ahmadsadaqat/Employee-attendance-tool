@@ -13,7 +13,7 @@ export const fetchDocList = async (
   fields?: string[],
   orderBy?: { field: string; order: 'desc' | 'asc' },
   limit_start?: number,
-  limit?: number
+  limit?: number,
 ) => {
   const baseUrl = getBaseUrl()
   const headers: Record<string, string> = {
@@ -40,7 +40,7 @@ export const fetchDocList = async (
     {
       method: 'GET',
       headers,
-    }
+    },
   )
 
   if (!response.ok) {
@@ -85,7 +85,7 @@ export const useFrappeDocList = (
     page?: number // Offset
     enabled?: boolean
     refetchInterval?: number
-  }
+  },
 ) => {
   // Include URL in key to force refetch on switch
   const currentUrl = (window as any).frappeBaseUrl || ''
@@ -103,7 +103,7 @@ export const useFrappeDocList = (
         options?.fields,
         options?.orderBy,
         start,
-        limit
+        limit,
       ),
     enabled: options?.enabled !== false,
     refetchInterval: options?.refetchInterval,
@@ -119,6 +119,7 @@ export const useDeviceLogs = (enabled: boolean = false) => {
       // Logic to fetch from ALL devices
       const devices = await (window as any).api.listDevices()
       let totalImported = 0
+      let totalIgnored = 0
 
       for (const device of devices) {
         try {
@@ -128,17 +129,18 @@ export const useDeviceLogs = (enabled: boolean = false) => {
             device.name,
             device.commKey,
             device.useUdp === 1,
-            { doublePunchThreshold: threshold }
+            { doublePunchThreshold: threshold },
           )
           if (result.imported) totalImported += result.imported
+          if (result.ignored) totalIgnored += result.ignored
         } catch (e) {
           console.error(
             `Failed to fetch from device ${device.name} (${device.ip}):`,
-            e
+            e,
           )
         }
       }
-      return totalImported
+      return { imported: totalImported, ignored: totalIgnored }
     },
     onSuccess: () => {
       // Broadly invalidate frappe queries to pick up new data regardless of URL
@@ -179,7 +181,7 @@ export const useFrappeCount = (doctype: string, filters?: any) => {
       }
       const response = await fetch(
         `${baseUrl}/api/resource/${doctype}?${params.toString()}`,
-        { method: 'GET', headers }
+        { method: 'GET', headers },
       )
 
       if (!response.ok) return 0

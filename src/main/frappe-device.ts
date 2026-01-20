@@ -199,11 +199,6 @@ export async function fetchDevices(
 
   const response = await frappeRequest<any>(url, 'GET', headers)
 
-  console.log(
-    'Frappe Device: Raw response:',
-    JSON.stringify(response.data, null, 2),
-  )
-
   if (response.status >= 200 && response.status < 300 && response.data) {
     // Handle different response structures:
     // 1. Direct array: [...]

@@ -84,7 +84,7 @@ const generateSingleCheckIn = (synced: boolean = false): CheckInRecord => {
     device: devInfo.device,
     location: devInfo.location,
     type: Math.random() > 0.4 ? 'CHECK_IN' : ('CHECK_OUT' as AccessType),
-    syncedToErp: synced,
+    syncStatus: synced ? 1 : 0,
   }
 }
 
@@ -171,7 +171,7 @@ export default function Dashboard({
     darkMode: true,
     retentionDays: 30,
     deviceFetchIntervalSeconds: 60,
-    doublePunchThresholdSeconds: 60,
+    doublePunchThresholdSeconds: 5,
   })
 
   // Apply Dark Mode
@@ -297,7 +297,7 @@ export default function Dashboard({
             ? 'CHECK_IN'
             : 'CHECK_OUT',
           avatar: empInfo.avatar,
-          syncedToErp: isLocal ? log.synced === 1 : true, // Frappe logs are by definition synced
+          syncStatus: isLocal ? (log.synced as 0 | 1 | 2 | 3) : 1, // Frappe logs are by definition synced
         }
       })
 
@@ -387,11 +387,17 @@ export default function Dashboard({
           'SUCCESS',
           'ERP Integration',
         )
-        // Refresh local view
+        // Refresh local view - mark synced, duplicates, and errors
         setCheckIns((prev) =>
-          prev.map((c) =>
-            result.syncedIds?.includes(c.id) ? { ...c, syncedToErp: true } : c,
-          ),
+          prev.map((c) => {
+            if (result.syncedIds?.includes(c.id))
+              return { ...c, syncStatus: 1 as const }
+            if (result.duplicateIds?.includes(c.id))
+              return { ...c, syncStatus: 2 as const }
+            if (result.errorIds?.includes(c.id))
+              return { ...c, syncStatus: 3 as const }
+            return c
+          }),
         )
         refetchLogs()
       } else if (result?.errors?.length > 0) {
@@ -420,22 +426,25 @@ export default function Dashboard({
   const handleForceFetchDevices = async (options?: { silent?: boolean }) => {
     setIsLoading(true)
     try {
-      const count = await deviceSync.mutateAsync({
-        threshold: appSettings.doublePunchThresholdSeconds ?? 60,
+      const result = await deviceSync.mutateAsync({
+        threshold: appSettings.doublePunchThresholdSeconds ?? 5,
       })
 
+      const imported = result?.imported || 0
+      const ignored = result?.ignored || 0
+
       if (!options?.silent) {
-        addNotification(
-          `Synced ${count} logs from devices`,
-          'SUCCESS',
-          'Device Sync',
-        )
-      } else if (count > 0 && options?.silent) {
+        let message = `Synced ${imported} logs from devices`
+        if (ignored > 0) {
+          message += ` (${ignored} double punches ignored)`
+        }
+        addNotification(message, 'SUCCESS', 'Device Sync')
+      } else if (imported > 0 && options?.silent) {
         // Even in silent mode, if we found data, let the user know gently or debug
-        console.log(`Auto-fetch: synced ${count} logs`)
+        console.log(`Auto-fetch: synced ${imported} logs, ${ignored} ignored`)
       }
 
-      if (count > 0) {
+      if (imported > 0) {
         await syncToERP(true)
       }
     } catch (e: any) {
@@ -466,7 +475,10 @@ export default function Dashboard({
     setTimeout(() => {
       const imported = generateMockCheckIns(count)
       // Mark them as not synced yet to simulate import flow
-      const withSyncState = imported.map((r) => ({ ...r, syncedToErp: false }))
+      const withSyncState = imported.map((r) => ({
+        ...r,
+        syncStatus: 0 as const,
+      }))
       setCheckIns((prev) =>
         [...withSyncState, ...prev].sort(
           (a, b) =>
@@ -579,12 +591,12 @@ export default function Dashboard({
             device.name,
           )
 
-          if (logsResult?.imported > 0) {
-            addNotification(
-              `Auto-fetched ${logsResult.imported} logs from ${device.name}`,
-              'SUCCESS',
-              'Device Manager',
-            )
+          if (logsResult?.imported > 0 || logsResult?.ignored > 0) {
+            let message = `Fetched from ${device.name}: ${logsResult.imported || 0} imported`
+            if (logsResult.ignored > 0) {
+              message += `, ${logsResult.ignored} double punches ignored`
+            }
+            addNotification(message, 'SUCCESS', 'Device Manager')
             refetchLogs()
             await syncToERP(true)
           } else {

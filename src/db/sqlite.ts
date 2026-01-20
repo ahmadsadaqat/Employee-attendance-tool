@@ -8,7 +8,7 @@ export type Attendance = {
   employee_id: string
   timestamp: string // ISO
   status: 'IN' | 'OUT'
-  synced: 0 | 1
+  synced: 0 | 1 | 2 | 3 // 0=pending, 1=synced, 2=duplicate, 3=error
 }
 
 export type Device = {
@@ -262,13 +262,32 @@ export class Database {
     return info.changes
   }
 
+  static clearAllLogs(instanceUrl?: string): number {
+    if (instanceUrl) {
+      // Delete logs linked to devices of this instance
+      const info = this.db
+        .prepare(
+          `
+         DELETE FROM attendance
+         WHERE device_id IN (SELECT id FROM devices WHERE instance_url = ?)
+       `,
+        )
+        .run(instanceUrl)
+      return info.changes
+    }
+
+    // Global delete (fallback)
+    const info = this.db.prepare('DELETE FROM attendance').run()
+    return info.changes
+  }
+
   static deleteDevice(id: number) {
     // Remove dependent attendance rows first to satisfy FK constraint
     this.db.prepare('DELETE FROM attendance WHERE device_id=?').run(id)
     this.db.prepare('DELETE FROM devices WHERE id=?').run(id)
   }
 
-  static insertAttendance(a: Attendance) {
+  static insertAttendance(a: Attendance): { id: number; inserted: boolean } {
     const stmt = this.db.prepare(
       'INSERT OR IGNORE INTO attendance (device_id, employee_id, timestamp, status, synced) VALUES (?, ?, ?, ?, ?)',
     )
@@ -279,7 +298,11 @@ export class Database {
       a.status,
       a.synced ?? 0,
     )
-    return info.lastInsertRowid as number
+    // info.changes is 1 if a row was inserted, 0 if ignored (duplicate)
+    return {
+      id: info.lastInsertRowid as number,
+      inserted: info.changes > 0,
+    }
   }
 
   static markSynced(ids: number[]) {
@@ -301,12 +324,58 @@ export class Database {
   }
 
   static resetSyncStatusByDate(startDate: string, endDate: string) {
-    // startDate and endDate should be ISO strings or compatible for comparison
-    return this.db
+    // startDate and endDate may have T separator, normalize for comparison
+    const startISO = startDate.includes('T')
+      ? startDate.replace('T', ' ')
+      : `${startDate} 00:00:00`
+    const endISO = endDate.includes('T')
+      ? endDate.replace('T', ' ')
+      : `${endDate} 23:59:59`
+
+    // Debug: show sample timestamps from DB to understand format
+    const sample = this.db
+      .prepare('SELECT timestamp FROM attendance LIMIT 3')
+      .all() as { timestamp: string }[]
+    console.log(
+      'Resync: Sample timestamps from DB:',
+      sample.map((s) => s.timestamp),
+    )
+    console.log(`Resync: Resetting logs from "${startISO}" to "${endISO}"`)
+
+    // Use datetime() function for proper comparison regardless of format
+    const result = this.db
       .prepare(
-        'UPDATE attendance SET synced=0 WHERE timestamp >= ? AND timestamp <= ?',
+        `
+        UPDATE attendance
+        SET synced=0
+        WHERE datetime(timestamp) >= datetime(?)
+          AND datetime(timestamp) <= datetime(?)
+      `,
       )
-      .run(startDate, endDate)
+      .run(startISO, endISO)
+
+    console.log(`Resync: Updated ${result.changes} logs`)
+    return result
+  }
+
+  // Mark logs as duplicate (synced=2) - these won't be retried
+  static markDuplicate(ids: number[]) {
+    if (!ids.length) return
+    const stmt = this.db.prepare('UPDATE attendance SET synced=2 WHERE id=?')
+    const tx = this.db.transaction((rows: number[]) =>
+      rows.forEach((id) => stmt.run(id)),
+    )
+    tx(ids)
+  }
+
+  // Mark logs as error (synced=3) - employee not found, etc.
+  static markError(ids: number[]) {
+    if (!ids.length) return
+    const stmt = this.db.prepare('UPDATE attendance SET synced=3 WHERE id=?')
+    const tx = this.db.transaction((rows: number[]) =>
+      rows.forEach((id) => stmt.run(id)),
+    )
+    tx(ids)
   }
 
   static getUnsynced(

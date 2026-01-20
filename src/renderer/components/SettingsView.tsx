@@ -188,7 +188,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <label className='block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2'>
                 Double Punch Prevention:{' '}
                 <span className='text-teal-600 dark:text-teal-400 font-mono'>
-                  {formData.doublePunchThresholdSeconds ?? 60}s
+                  {formData.doublePunchThresholdSeconds ?? 5}s
                 </span>
               </label>
               <div className='flex items-center gap-4'>
@@ -255,6 +255,42 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 {formData.retentionDays} Days
               </span>
               <span>365 Days</span>
+            </div>
+
+            {/* Clear All Logs Button */}
+            <div className='mt-6 pt-4 border-t border-slate-100 dark:border-slate-700'>
+              <label className='block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2'>
+                Clear All Local Logs
+              </label>
+              <p className='text-xs text-slate-500 dark:text-slate-400 mb-3'>
+                This will permanently delete ALL attendance logs stored locally
+                on this computer. Logs already synced to ERP will not be
+                affected.
+              </p>
+              <button
+                type='button'
+                onClick={async () => {
+                  if (
+                    window.confirm(
+                      'Are you sure you want to DELETE ALL local attendance logs? This action cannot be undone.',
+                    )
+                  ) {
+                    try {
+                      setIsSaving(true)
+                      const deleted = await (window as any).api.clearAllLogs()
+                      setStatusMessage(`Cleared ${deleted} attendance logs.`)
+                    } catch (e) {
+                      setStatusMessage('Failed to clear logs.')
+                    } finally {
+                      setIsSaving(false)
+                    }
+                  }
+                }}
+                disabled={isSaving}
+                className='text-xs px-4 py-2 bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/50 border border-red-200 dark:border-red-800 font-medium disabled:opacity-50'
+              >
+                Clear All Logs
+              </button>
             </div>
           </div>
         </div>

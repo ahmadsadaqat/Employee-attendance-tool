@@ -268,6 +268,13 @@ app.whenReady().then(async () => {
     return count
   })
 
+  ipcMain.handle('data:clear-all', async () => {
+    const creds = await getCredentials()
+    const count = Database.clearAllLogs(creds?.baseUrl)
+    console.log(`Main: Cleared ${count} attendance logs`)
+    return count
+  })
+
   // Device CRUD (Phase 13: Frappe is source of truth, SQLite is cache)
   ipcMain.handle(
     'device:add',
@@ -407,11 +414,24 @@ app.whenReady().then(async () => {
         )
 
         let imported = 0
-        const thresholdMs = (doublePunchThreshold ?? 60) * 1000
+        let ignored = 0
+        const thresholdMs = (doublePunchThreshold ?? 5) * 1000
+
+        // Track last log per employee DURING batch processing (not just from DB)
+        const lastLogPerEmployee = new Map<
+          string,
+          { timestamp: string; status: 'IN' | 'OUT' }
+        >()
 
         for (const log of logs) {
-          // 1. Get last status for this employee
-          const lastLog = Database.getLastLog(log.employee_id)
+          // 1. Get last status for this employee - check in-memory first, then DB
+          let lastLog = lastLogPerEmployee.get(log.employee_id)
+          if (!lastLog) {
+            const dbLog = Database.getLastLog(log.employee_id)
+            if (dbLog) {
+              lastLog = { timestamp: dbLog.timestamp, status: dbLog.status }
+            }
+          }
 
           let newStatus: 'IN' | 'OUT' = 'IN' // Default to IN if no history
 
@@ -424,6 +444,7 @@ app.whenReady().then(async () => {
               console.log(
                 `Main: Ignoring double punch for ${log.employee_id} within ${timeDiff}ms (Threshold: ${thresholdMs}ms)`,
               )
+              ignored++
               continue
             }
 
@@ -433,20 +454,27 @@ app.whenReady().then(async () => {
             }
           }
 
-          const id = Database.insertAttendance({
+          const result = Database.insertAttendance({
             device_id: deviceId,
             employee_id: log.employee_id,
             timestamp: log.timestamp,
             status: newStatus,
             synced: 0,
           })
-          if (id) imported += 1
+          if (result.inserted) {
+            imported += 1
+            // Update in-memory tracking for next iteration ONLY if actually inserted
+            lastLogPerEmployee.set(log.employee_id, {
+              timestamp: log.timestamp,
+              status: newStatus,
+            })
+          }
         }
         console.log(
-          `Main: Imported ${imported} new logs into DB (others ignored)`,
+          `Main: Imported ${imported} new logs into DB (${ignored} double punches ignored)`,
         )
 
-        return { imported }
+        return { imported, ignored }
       } catch (e: any) {
         const errObj = e?.err || e
         const msg =
@@ -921,13 +949,27 @@ app.whenReady().then(async () => {
       // 6. Push to Frappe API
       const result = await syncLogsToFrappe(logs, baseUrl, creds.auth)
 
-      if (result.success && result.syncedIds && result.syncedIds.length > 0) {
-        // 7. Mark logs as synced ONLY after successful Frappe response
+      // 7. Mark logs based on result status
+      if (result.syncedIds && result.syncedIds.length > 0) {
         Database.markSynced(result.syncedIds)
         console.log(
           `AutoSync: Marked ${result.syncedIds.length} logs as synced.`,
         )
-      } else if (result.errors.length > 0) {
+      }
+
+      if (result.duplicateIds && result.duplicateIds.length > 0) {
+        Database.markDuplicate(result.duplicateIds)
+        console.log(
+          `AutoSync: Marked ${result.duplicateIds.length} logs as duplicate.`,
+        )
+      }
+
+      if (result.errorIds && result.errorIds.length > 0) {
+        Database.markError(result.errorIds)
+        console.log(`AutoSync: Marked ${result.errorIds.length} logs as error.`)
+      }
+
+      if (result.errors.length > 0) {
         console.warn('AutoSync: Completed with errors:', result.errors)
       }
     } catch (e) {
@@ -991,9 +1033,26 @@ app.whenReady().then(async () => {
 
       const result = await syncLogsToFrappe(logs, baseUrl, creds.auth)
 
-      // Mark synced if successful
-      if (result.success && result.syncedIds && result.syncedIds.length > 0) {
+      // Mark logs based on result status
+      if (result.syncedIds && result.syncedIds.length > 0) {
         Database.markSynced(result.syncedIds)
+        console.log(
+          `Frappe Sync: Marked ${result.syncedIds.length} logs as synced`,
+        )
+      }
+
+      if (result.duplicateIds && result.duplicateIds.length > 0) {
+        Database.markDuplicate(result.duplicateIds)
+        console.log(
+          `Frappe Sync: Marked ${result.duplicateIds.length} logs as duplicate`,
+        )
+      }
+
+      if (result.errorIds && result.errorIds.length > 0) {
+        Database.markError(result.errorIds)
+        console.log(
+          `Frappe Sync: Marked ${result.errorIds.length} logs as error`,
+        )
       }
 
       return result

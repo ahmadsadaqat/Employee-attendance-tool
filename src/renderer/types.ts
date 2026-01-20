@@ -10,7 +10,7 @@ export interface CheckInRecord {
   location: string
   type: AccessType
   avatar: string
-  syncedToErp: boolean // New field to show flow to ERP
+  syncStatus: 0 | 1 | 2 | 3 // 0=pending, 1=synced, 2=duplicate, 3=error
 }
 
 export interface Employee {
@@ -75,5 +75,5 @@ export interface AppSettings {
   retentionDays: number
   syncIntervalSeconds?: number // Seconds, default 60 (Frappe sync interval)
   deviceFetchIntervalSeconds?: number // Seconds, default 60 (30s - 300s)
-  doublePunchThresholdSeconds?: number // Seconds, default 60
+  doublePunchThresholdSeconds?: number // Seconds, default 5
 }
