@@ -76,4 +76,5 @@ export interface AppSettings {
   syncIntervalSeconds?: number // Seconds, default 60 (Frappe sync interval)
   deviceFetchIntervalSeconds?: number // Seconds, default 60 (30s - 300s)
   doublePunchThresholdSeconds?: number // Seconds, default 5
+  autoLaunchOnStartup?: boolean // Windows: Start app on system boot
 }

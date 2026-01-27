@@ -1,6 +1,12 @@
-import React from 'react'
+import React, { useEffect } from 'react'
 import { AppSettings } from '../types'
-import { Save, Database, Loader2, Cloud as CloudIcon } from 'lucide-react'
+import {
+  Save,
+  Database,
+  Loader2,
+  Cloud as CloudIcon,
+  Power,
+} from 'lucide-react'
 import { RetentionManager } from './RetentionLogic'
 
 interface SettingsViewProps {
@@ -15,6 +21,45 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [formData, setFormData] = React.useState<AppSettings>(settings)
   const [isSaving, setIsSaving] = React.useState(false)
   const [statusMessage, setStatusMessage] = React.useState('')
+  const [autoLaunchEnabled, setAutoLaunchEnabled] = React.useState(false)
+  const [autoLaunchLoading, setAutoLaunchLoading] = React.useState(true)
+
+  // Load auto-launch status on mount
+  useEffect(() => {
+    const loadAutoLaunch = async () => {
+      try {
+        const enabled = await (window as any).api.getAutoLaunch()
+        setAutoLaunchEnabled(enabled)
+      } catch (e) {
+        console.error('Failed to load auto-launch status:', e)
+      } finally {
+        setAutoLaunchLoading(false)
+      }
+    }
+    loadAutoLaunch()
+  }, [])
+
+  const handleAutoLaunchToggle = async () => {
+    const newValue = !autoLaunchEnabled
+    setAutoLaunchLoading(true)
+    try {
+      const success = await (window as any).api.setAutoLaunch(newValue)
+      if (success) {
+        setAutoLaunchEnabled(newValue)
+        setStatusMessage(
+          newValue
+            ? 'App will start automatically on Windows startup.'
+            : 'Auto-start disabled.',
+        )
+      } else {
+        setStatusMessage('Failed to update auto-start setting.')
+      }
+    } catch (e) {
+      setStatusMessage('Failed to update auto-start setting.')
+    } finally {
+      setAutoLaunchLoading(false)
+    }
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -132,6 +177,44 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   {Math.floor((formData.syncIntervalSeconds || 60) / 60)} min
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Startup Settings (Windows Auto-Launch) */}
+        <div className='bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden'>
+          <div className='px-6 py-4 border-b border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-700/50 flex items-center gap-2'>
+            <Power className='text-teal-600 dark:text-teal-400' size={18} />
+            <h3 className='font-semibold text-slate-800 dark:text-slate-100'>
+              Startup Settings
+            </h3>
+          </div>
+          <div className='p-6'>
+            <div className='flex items-center justify-between'>
+              <div>
+                <label className='block text-sm font-medium text-slate-700 dark:text-slate-300'>
+                  Start on Windows Startup
+                </label>
+                <p className='text-xs text-slate-500 dark:text-slate-400 mt-1'>
+                  Automatically launch the app when Windows starts.
+                </p>
+              </div>
+              <button
+                type='button'
+                disabled={autoLaunchLoading}
+                onClick={handleAutoLaunchToggle}
+                className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-teal-600 focus:ring-offset-2 disabled:opacity-50 ${
+                  autoLaunchEnabled
+                    ? 'bg-teal-600'
+                    : 'bg-slate-200 dark:bg-slate-600'
+                }`}
+              >
+                <span
+                  className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                    autoLaunchEnabled ? 'translate-x-5' : 'translate-x-0'
+                  }`}
+                />
+              </button>
             </div>
           </div>
         </div>

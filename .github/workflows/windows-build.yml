@@ -2,12 +2,21 @@ name: Windows Build (Electron)
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: windows-latest
+    strategy:
+      matrix:
+        include:
+          - arch: x64
+            build_script: build:win
+            artifact_name: nexo-employees-windows-x64
+          - arch: ia32
+            build_script: build:win32
+            artifact_name: nexo-employees-windows-ia32
 
     steps:
       - name: Checkout repo
@@ -22,11 +31,11 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Build app
-        run: npm run build:win
+      - name: Build app (${{ matrix.arch }})
+        run: npm run ${{ matrix.build_script }}
 
-      - name: Upload artifact
+      - name: Upload artifact (${{ matrix.arch }})
         uses: actions/upload-artifact@v4
         with:
-          name: nexo-employees-windows
+          name: ${{ matrix.artifact_name }}
           path: dist/*.exe

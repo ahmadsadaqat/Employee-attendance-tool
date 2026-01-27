@@ -11,12 +11,14 @@
     "dev": "concurrently -k \"node scripts/build-electron.mjs --watch\" \"vite\" \"wait-on tcp:5173 && cross-env VITE_DEV_SERVER=true electron .\"",
     "build": "node scripts/build-electron.mjs && vite build && electron-builder",
     "build:win": "node scripts/build-electron.mjs && vite build && electron-builder --win",
+    "build:win32": "node scripts/build-electron.mjs && vite build && electron-builder --win --ia32",
     "build:app": "vite build",
     "lint": "echo 'no linter configured'",
     "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.90.12",
+    "auto-launch": "^5.0.6",
     "better-sqlite3": "^11.10.0",
     "dotenv": "^17.2.3",
     "electron-store": "^8.1.0",
@@ -30,6 +32,7 @@
     "swr": "^2.3.6"
   },
   "devDependencies": {
+    "@types/auto-launch": "^5.0.5",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^24.5.2",
     "@types/react": "^19.1.13",
@@ -73,7 +76,13 @@
     ],
     "win": {
       "target": [
-        "portable"
+        {
+          "target": "portable",
+          "arch": [
+            "x64",
+            "ia32"
+          ]
+        }
       ],
       "icon": "assets/nexo-256x256.ico",
       "artifactName": "nexo-employees_${version}_${arch}.${ext}"

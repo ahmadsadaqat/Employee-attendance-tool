@@ -61,4 +61,8 @@ contextBridge.exposeInMainWorld('api', {
   syncToFrappe: () => ipcRenderer.invoke('frappe:sync'),
   setSyncInterval: (seconds: number) =>
     ipcRenderer.invoke('sync:set-interval', seconds),
+  // Auto-Launch (Start on Windows Boot)
+  getAutoLaunch: () => ipcRenderer.invoke('settings:get-auto-launch'),
+  setAutoLaunch: (enabled: boolean) =>
+    ipcRenderer.invoke('settings:set-auto-launch', enabled),
 })

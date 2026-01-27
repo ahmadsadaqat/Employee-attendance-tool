@@ -12,6 +12,7 @@ import {
 } from 'electron'
 import path from 'node:path'
 import Store from 'electron-store'
+import AutoLaunch from 'auto-launch'
 import { FrappeApp } from 'frappe-js-sdk'
 import {
   syncLogsToFrappe,
@@ -897,6 +898,37 @@ app.whenReady().then(async () => {
       return await isOnline({ timeout: 2000 })
     } catch (error) {
       console.error('Main process: Failed to determine network status:', error)
+      return false
+    }
+  })
+
+  // -------------------- AUTO-LAUNCH (Start on Windows Boot) --------------------
+  const autoLauncher = new AutoLaunch({
+    name: 'Nexo Employees',
+    path: app.getPath('exe'),
+  })
+
+  ipcMain.handle('settings:get-auto-launch', async () => {
+    try {
+      return await autoLauncher.isEnabled()
+    } catch (error) {
+      console.error('Failed to get auto-launch status:', error)
+      return false
+    }
+  })
+
+  ipcMain.handle('settings:set-auto-launch', async (_e, enabled: boolean) => {
+    try {
+      if (enabled) {
+        await autoLauncher.enable()
+        console.log('Auto-launch enabled')
+      } else {
+        await autoLauncher.disable()
+        console.log('Auto-launch disabled')
+      }
+      return true
+    } catch (error) {
+      console.error('Failed to set auto-launch:', error)
       return false
     }
   })
