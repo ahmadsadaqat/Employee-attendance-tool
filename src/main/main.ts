@@ -389,7 +389,16 @@ app.whenReady().then(async () => {
     'device:fetchLogs',
     async (
       _e,
-      { ip, port = 4370, name, commKey, useUdp, doublePunchThreshold }: any,
+      {
+        ip,
+        port = 4370,
+        name,
+        commKey,
+        useUdp,
+        doublePunchThreshold,
+        startDate,
+        endDate,
+      }: any,
     ) => {
       try {
         const creds = await getCredentials()
@@ -404,7 +413,14 @@ app.whenReady().then(async () => {
           creds?.baseUrl,
         )
 
-        const logs = await ZKClient.fetchLogs({ ip, port, commKey, useUdp })
+        const logs = await ZKClient.fetchLogs({
+          ip,
+          port,
+          commKey,
+          useUdp,
+          startDate,
+          endDate,
+        })
         console.log(`Main: Fetched ${logs.length} logs from ZKClient`)
 
         // Sort logs by timestamp ascending to ensure we process them in order
@@ -442,9 +458,19 @@ app.whenReady().then(async () => {
               new Date(lastLog.timestamp).getTime()
             if (timeDiff < thresholdMs && timeDiff >= 0) {
               console.log(
-                `Main: Ignoring double punch for ${log.employee_id} within ${timeDiff}ms (Threshold: ${thresholdMs}ms)`,
+                `Main: Recording double punch for ${log.employee_id} within ${timeDiff}ms (Threshold: ${thresholdMs}ms)`,
               )
-              ignored++
+              // Save as double punch (synced=4) so it appears in UI instead of being ignored
+              const dpResult = Database.insertAttendance({
+                device_id: deviceId,
+                employee_id: log.employee_id,
+                timestamp: log.timestamp,
+                status: lastLog.status, // Keep same status as previous log
+                synced: 4, // 4 = double-punch (ignored)
+              })
+              if (dpResult.inserted) {
+                ignored++
+              }
               continue
             }
 

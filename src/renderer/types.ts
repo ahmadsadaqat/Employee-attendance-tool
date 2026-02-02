@@ -10,7 +10,7 @@ export interface CheckInRecord {
   location: string
   type: AccessType
   avatar: string
-  syncStatus: 0 | 1 | 2 | 3 // 0=pending, 1=synced, 2=duplicate, 3=error
+  syncStatus: 0 | 1 | 2 | 3 | 4 // 0=pending, 1=synced, 2=duplicate, 3=error, 4=double-punch
 }
 
 export interface Employee {
