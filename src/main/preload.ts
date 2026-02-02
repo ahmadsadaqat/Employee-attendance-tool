@@ -18,7 +18,11 @@ contextBridge.exposeInMainWorld('api', {
     name?: string,
     commKey?: string,
     useUdp?: boolean,
-    options?: { doublePunchThreshold?: number },
+    options?: {
+      doublePunchThreshold?: number
+      startDate?: string
+      endDate?: string
+    },
   ) =>
     ipcRenderer.invoke('device:fetchLogs', {
       ip,

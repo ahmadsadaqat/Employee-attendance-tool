@@ -297,7 +297,7 @@ export default function Dashboard({
             ? 'CHECK_IN'
             : 'CHECK_OUT',
           avatar: empInfo.avatar,
-          syncStatus: isLocal ? (log.synced as 0 | 1 | 2 | 3) : 1, // Frappe logs are by definition synced
+          syncStatus: isLocal ? (log.synced as 0 | 1 | 2 | 3 | 4) : 1, // Frappe logs are by definition synced
         }
       })
 
@@ -458,7 +458,9 @@ export default function Dashboard({
     }
   }
 
-  // Auto-Fetch Loop
+  // Auto-Fetch Loop - Runs after initial import to fetch new logs
+  // The initial import is done manually via "Import Logs" button to control date range
+  // Subsequent syncs fetch all logs but DB deduplication ensures only new ones are inserted
   useEffect(() => {
     const intervalSeconds = appSettings.deviceFetchIntervalSeconds || 60 // Default 60s
     console.log(`Setting up device auto-fetch interval: ${intervalSeconds}s`)
@@ -550,6 +552,61 @@ export default function Dashboard({
     syncToERP()
   }
 
+  // Handle import with date range from ImportLogsModal
+  const handleImportWithDateRange = async (params: {
+    deviceId: string
+    deviceIp: string
+    devicePort: number
+    deviceName: string
+    commKey?: string | null
+    useUdp?: boolean
+    startDate: string
+    endDate: string
+  }) => {
+    setIsLoading(true)
+    try {
+      const result = await (window as any).api?.fetchLogs?.(
+        params.deviceIp,
+        params.devicePort,
+        params.deviceName,
+        params.commKey,
+        params.useUdp,
+        {
+          startDate: params.startDate,
+          endDate: params.endDate,
+          doublePunchThreshold: appSettings.doublePunchThresholdSeconds ?? 5,
+        },
+      )
+
+      const imported = result?.imported || 0
+      const ignored = result?.ignored || 0
+
+      let message = `Imported ${imported} logs from ${params.deviceName}`
+      if (ignored > 0) {
+        message += ` (${ignored} double punches ignored)`
+      }
+      message += ` (${params.startDate} to ${params.endDate})`
+      addNotification(message, 'SUCCESS', 'Log Import')
+
+      refetchLocalLogs()
+      refetchLogs()
+
+      // Auto-sync to ERP after import
+      if (imported > 0) {
+        await syncToERP(true)
+      }
+    } catch (e: any) {
+      addNotification(
+        `Import failed: ${e.message || 'Unknown error'}`,
+        'CRITICAL',
+        'Log Import',
+      )
+      throw e
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
   const handleClearAlerts = () => {
     setAlerts([])
   }
@@ -580,40 +637,8 @@ export default function Dashboard({
           ),
         )
 
-        // Auto-fetch logs after connection
-        // Wait 1s to allow device to close the test connection socket (ZK devices are often single-threaded)
-        await new Promise((r) => setTimeout(r, 1000))
-
-        try {
-          const logsResult = await (window as any).api?.fetchLogs?.(
-            device.ipAddress,
-            Number(device.port),
-            device.name,
-          )
-
-          if (logsResult?.imported > 0 || logsResult?.ignored > 0) {
-            let message = `Fetched from ${device.name}: ${logsResult.imported || 0} imported`
-            if (logsResult.ignored > 0) {
-              message += `, ${logsResult.ignored} double punches ignored`
-            }
-            addNotification(message, 'SUCCESS', 'Device Manager')
-            refetchLogs()
-            await syncToERP(true)
-          } else {
-            addNotification(
-              `Connected to ${device.name}, no new logs found.`,
-              'INFO',
-              'Device Manager',
-            )
-          }
-        } catch (e: any) {
-          console.error('Auto-fetch failed', e)
-          addNotification(
-            `Auto-fetch failed: ${e.message || 'Unknown error'}`,
-            'WARNING',
-            'Device Manager',
-          )
-        }
+        // Auto-fetch REMOVED - logs are now fetched manually via "Import Logs" button
+        // This avoids performance issues when devices have 1k+ logs
       } else {
         throw new Error(result?.error || 'Connection timed out')
       }
@@ -677,13 +702,20 @@ export default function Dashboard({
           />
         )
       case 'logs':
-        // Rewired props to match the new "Fetch" and "Push" buttons
+        // Rewired props to match the new "Import Logs" and "Push" buttons
         return (
           <AccessLogList
             logs={checkIns}
             onImport={() => handleForceFetchDevices({ silent: false })}
             onSync={handleForcePushToERP}
             onResetSyncRange={handleBulkResync}
+            onImportWithDateRange={handleImportWithDateRange}
+            devices={devices.map((d) => ({
+              id: d.id,
+              name: d.name,
+              ip: d.ipAddress,
+              port: Number(d.port),
+            }))}
           />
         )
       case 'settings':

@@ -8,7 +8,7 @@ export type Attendance = {
   employee_id: string
   timestamp: string // ISO
   status: 'IN' | 'OUT'
-  synced: 0 | 1 | 2 | 3 // 0=pending, 1=synced, 2=duplicate, 3=error
+  synced: 0 | 1 | 2 | 3 | 4 // 0=pending, 1=synced, 2=duplicate, 3=error, 4=double-punch (ignored)
 }
 
 export type Device = {
@@ -372,6 +372,16 @@ export class Database {
   static markError(ids: number[]) {
     if (!ids.length) return
     const stmt = this.db.prepare('UPDATE attendance SET synced=3 WHERE id=?')
+    const tx = this.db.transaction((rows: number[]) =>
+      rows.forEach((id) => stmt.run(id)),
+    )
+    tx(ids)
+  }
+
+  // Mark logs as double-punch (synced=4) - rapid successive punches ignored
+  static markDoublePunch(ids: number[]) {
+    if (!ids.length) return
+    const stmt = this.db.prepare('UPDATE attendance SET synced=4 WHERE id=?')
     const tx = this.db.transaction((rows: number[]) =>
       rows.forEach((id) => stmt.run(id)),
     )
