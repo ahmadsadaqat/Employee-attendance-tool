@@ -128,10 +128,16 @@ function setupAuthInjection(
 
 function createTray() {
   const isWin = process.platform === 'win32'
+  // Use app.getAppPath() for production builds, process.cwd() for dev
+  const basePath = process.env.VITE_DEV_SERVER
+    ? process.cwd()
+    : app.getAppPath()
+  // Windows tray icons should be 16x16 for best display
   const iconPath = path.join(
-    process.cwd(),
-    isWin ? 'assets/nexo-32x32.ico' : 'assets/nexo-32x32.png',
+    basePath,
+    isWin ? 'assets/nexo-16x16.ico' : 'assets/nexo-16x16.png',
   )
+  console.log('Tray icon path:', iconPath)
   const trayIcon = nativeImage.createFromPath(iconPath)
 
   tray = new Tray(trayIcon)
@@ -166,8 +172,12 @@ function createTray() {
 
 function createWindow() {
   const isWin = process.platform === 'win32'
+  // Use app.getAppPath() for production builds, process.cwd() for dev
+  const basePath = process.env.VITE_DEV_SERVER
+    ? process.cwd()
+    : app.getAppPath()
   const iconPath = path.join(
-    process.cwd(),
+    basePath,
     isWin ? 'assets/nexo-256x256.ico' : 'assets/nexo-64x64.png',
   )
 
