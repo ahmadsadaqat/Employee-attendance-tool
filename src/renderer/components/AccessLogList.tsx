@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react'
+import React, { useRef, useState, useMemo } from 'react'
 import { CheckInRecord } from '../types'
 import {
   LogIn,
@@ -6,16 +6,15 @@ import {
   MapPin,
   TabletSmartphone,
   CloudUpload,
-  RefreshCw,
   FileDown,
   CheckCircle2,
   Clock,
   ChevronLeft,
   ChevronRight,
-  CalendarRange,
   Download,
+  Search,
+  Calendar,
 } from 'lucide-react'
-import { ResyncModal } from './ResyncModal'
 import { ImportLogsModal } from './ImportLogsModal'
 
 interface Device {
@@ -31,7 +30,6 @@ interface AccessLogListProps {
   logs: CheckInRecord[]
   onImport: () => void
   onSync: () => void
-  onResetSyncRange: (startDate: string, endDate: string) => void
   onImportWithDateRange?: (params: {
     deviceId: string
     deviceIp: string
@@ -49,13 +47,16 @@ export const AccessLogList: React.FC<AccessLogListProps> = ({
   logs,
   onImport,
   onSync,
-  onResetSyncRange,
   onImportWithDateRange,
   devices = [],
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const [isResyncModalOpen, setIsResyncModalOpen] = useState(false)
   const [isImportModalOpen, setIsImportModalOpen] = useState(false)
+
+  // Search & Filter State
+  const [searchQuery, setSearchQuery] = useState('')
+  const [startDate, setStartDate] = useState('')
+  const [endDate, setEndDate] = useState('')
 
   const handleFileClick = () => {
     fileInputRef.current?.click()
@@ -79,7 +80,7 @@ export const AccessLogList: React.FC<AccessLogListProps> = ({
       'Type',
       'Synced',
     ]
-    const rows = logs.map((log) => [
+    const rows = filteredLogs.map((log) => [
       log.id,
       log.employeeName,
       log.employeeId,
@@ -115,9 +116,55 @@ export const AccessLogList: React.FC<AccessLogListProps> = ({
     document.body.removeChild(link)
   }
 
+  // Filter logs based on search and date range
+  const filteredLogs = useMemo(() => {
+    return logs.filter((log) => {
+      // Search filter (employee ID or name)
+      if (searchQuery) {
+        const query = searchQuery.toLowerCase()
+        const matchesId = log.employeeId.toLowerCase().includes(query)
+        const matchesName = log.employeeName.toLowerCase().includes(query)
+        if (!matchesId && !matchesName) return false
+      }
+
+      // Date range filter
+      if (startDate) {
+        const logDate = new Date(log.timestamp)
+        const filterStart = new Date(startDate)
+        filterStart.setHours(0, 0, 0, 0)
+        if (logDate < filterStart) return false
+      }
+
+      if (endDate) {
+        const logDate = new Date(log.timestamp)
+        const filterEnd = new Date(endDate)
+        filterEnd.setHours(23, 59, 59, 999)
+        if (logDate > filterEnd) return false
+      }
+
+      return true
+    })
+  }, [logs, searchQuery, startDate, endDate])
+
   // Pagination State
   const [page, setPage] = useState(0)
   const [rowsPerPage, setRowsPerPage] = useState(20)
+
+  // Reset page when filters change
+  const handleSearchChange = (value: string) => {
+    setSearchQuery(value)
+    setPage(0)
+  }
+
+  const handleStartDateChange = (value: string) => {
+    setStartDate(value)
+    setPage(0)
+  }
+
+  const handleEndDateChange = (value: string) => {
+    setEndDate(value)
+    setPage(0)
+  }
 
   const handleChangePage = (newPage: number) => {
     setPage(newPage)
@@ -128,9 +175,12 @@ export const AccessLogList: React.FC<AccessLogListProps> = ({
     setPage(0)
   }
 
-  const count = logs.length
+  const count = filteredLogs.length
   const totalPages = Math.ceil(count / rowsPerPage)
-  const displayedLogs = logs.slice(page * rowsPerPage, (page + 1) * rowsPerPage)
+  const displayedLogs = filteredLogs.slice(
+    page * rowsPerPage,
+    (page + 1) * rowsPerPage,
+  )
 
   const startRange = count === 0 ? 0 : page * rowsPerPage + 1
   const endRange = Math.min((page + 1) * rowsPerPage, count)
@@ -157,14 +207,6 @@ export const AccessLogList: React.FC<AccessLogListProps> = ({
             accept='.csv,.xlsx'
             onChange={handleFileChange}
           />
-
-          <button
-            onClick={() => setIsResyncModalOpen(true)}
-            className='flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-600 text-slate-600 dark:text-slate-300 rounded-lg text-sm font-medium hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors shadow-sm'
-          >
-            <CalendarRange size={16} />
-            Resync Range
-          </button>
 
           <button
             onClick={() => setIsImportModalOpen(true)}
@@ -194,6 +236,55 @@ export const AccessLogList: React.FC<AccessLogListProps> = ({
               </span>
             )}
           </button>
+        </div>
+      </div>
+
+      {/* Search & Filter Bar */}
+      <div className='flex flex-col sm:flex-row gap-3 bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm'>
+        {/* Search Input */}
+        <div className='relative flex-1'>
+          <Search
+            size={16}
+            className='absolute left-3 top-1/2 -translate-y-1/2 text-slate-400'
+          />
+          <input
+            type='text'
+            placeholder='Search by Employee ID or Name...'
+            value={searchQuery}
+            onChange={(e) => handleSearchChange(e.target.value)}
+            className='w-full pl-10 pr-4 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-lg text-sm text-slate-700 dark:text-slate-200 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500'
+          />
+        </div>
+
+        {/* Date Range Filters */}
+        <div className='flex items-center gap-2'>
+          <Calendar size={16} className='text-slate-400' />
+          <input
+            type='date'
+            value={startDate}
+            onChange={(e) => handleStartDateChange(e.target.value)}
+            className='px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-lg text-sm text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500'
+          />
+          <span className='text-slate-400 text-sm'>to</span>
+          <input
+            type='date'
+            value={endDate}
+            onChange={(e) => handleEndDateChange(e.target.value)}
+            className='px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-lg text-sm text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500'
+          />
+          {(searchQuery || startDate || endDate) && (
+            <button
+              onClick={() => {
+                setSearchQuery('')
+                setStartDate('')
+                setEndDate('')
+                setPage(0)
+              }}
+              className='px-3 py-2 text-sm text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 transition-colors'
+            >
+              Clear
+            </button>
+          )}
         </div>
       </div>
 
@@ -375,12 +466,6 @@ export const AccessLogList: React.FC<AccessLogListProps> = ({
           </div>
         </div>
       </div>
-
-      <ResyncModal
-        isOpen={isResyncModalOpen}
-        onClose={() => setIsResyncModalOpen(false)}
-        onConfirm={onResetSyncRange}
-      />
 
       {onImportWithDateRange && (
         <ImportLogsModal

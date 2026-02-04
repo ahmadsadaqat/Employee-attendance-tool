@@ -717,7 +717,6 @@ export default function Dashboard({
             logs={checkIns}
             onImport={() => handleForceFetchDevices({ silent: false })}
             onSync={handleForcePushToERP}
-            onResetSyncRange={handleBulkResync}
             onImportWithDateRange={handleImportWithDateRange}
             devices={devices.map((d) => ({
               id: d.id,
