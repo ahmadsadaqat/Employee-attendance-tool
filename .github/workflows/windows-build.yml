@@ -14,9 +14,6 @@ jobs:
           - arch: x64
             build_script: build:win
             artifact_name: nexo-employees-windows-x64
-          - arch: ia32
-            build_script: build:win32
-            artifact_name: nexo-employees-windows-ia32
 
     steps:
       - name: Checkout repo
