@@ -655,7 +655,12 @@ app.whenReady().then(async () => {
       return { synced: 0, errors: [`Failed to map employees: ${e.message}`] }
     }
 
-    const results: { ok: boolean; error?: string }[] = []
+    const results: {
+      ok: boolean
+      error?: string
+      isDuplicate?: boolean
+      isEmployeeError?: boolean
+    }[] = []
     console.log(`Main: Syncing ${unsynced.length} records...`)
 
     for (const u of unsynced) {
@@ -664,9 +669,13 @@ app.whenReady().then(async () => {
         const realEmployeeId = employeeMap.get(String(u.employee_id))
 
         if (!realEmployeeId) {
-          throw new Error(
-            `No Employee found in ERP with Attendance Device ID '${u.employee_id}'`,
-          )
+          // Mark as error immediately - employee not found
+          results.push({
+            ok: false,
+            error: `No Employee found in ERP with Attendance Device ID '${u.employee_id}'`,
+            isEmployeeError: true,
+          })
+          continue
         }
 
         // Format timestamp to YYYY-MM-DD HH:mm:ss (Local Time)
@@ -696,24 +705,67 @@ app.whenReady().then(async () => {
         await frappeRequest('Employee Checkin', 'POST', payload)
         results.push({ ok: true })
       } catch (e: any) {
-        console.error(`Main: Failed to sync record ${u.id}:`, e?.message)
-        results.push({ ok: false, error: e?.message || 'Unknown error' })
+        const errorMsg = e?.message || 'Unknown error'
+        console.error(`Main: Failed to sync record ${u.id}:`, errorMsg)
+
+        // Detect duplicate: "already has a log with the same timestamp" or HTTP 417
+        const isDuplicate =
+          errorMsg.toLowerCase().includes('already has a log') ||
+          errorMsg.toLowerCase().includes('same timestamp') ||
+          errorMsg.toLowerCase().includes('duplicate') ||
+          errorMsg.includes('417')
+
+        // Detect employee error
+        const isEmployeeError =
+          errorMsg.toLowerCase().includes('employee') &&
+          (errorMsg.toLowerCase().includes('not found') ||
+            errorMsg.toLowerCase().includes('does not exist'))
+
+        results.push({
+          ok: false,
+          error: errorMsg,
+          isDuplicate,
+          isEmployeeError,
+        })
       }
     }
 
-    const syncedIds = results.filter((r) => r.ok).map((_, i) => unsynced[i].id!)
+    // Categorize results
+    const syncedIds: number[] = []
+    const duplicateIds: number[] = []
+    const errorIds: number[] = []
+
+    results.forEach((r, i) => {
+      const id = unsynced[i].id!
+      if (r.ok) {
+        syncedIds.push(id)
+      } else if (r.isDuplicate) {
+        duplicateIds.push(id)
+        console.log(`Main: Record ${id} marked as duplicate`)
+      } else if (r.isEmployeeError) {
+        errorIds.push(id)
+        console.log(`Main: Record ${id} marked as error (employee not found)`)
+      }
+      // Other errors remain pending for retry
+    })
+
+    // Mark in database
     Database.markSynced(syncedIds)
+    Database.markDuplicate(duplicateIds)
+    Database.markError(errorIds)
 
     console.log(
-      `Main: Sync complete. Synced: ${syncedIds.length}, Errors: ${
-        results.filter((r) => !r.ok).length
-      }`,
+      `Main: Sync complete. Synced: ${syncedIds.length}, Duplicates: ${duplicateIds.length}, Errors: ${errorIds.length}`,
     )
 
     return {
       synced: syncedIds.length,
-      errors: results.filter((r) => !r.ok).map((r) => r.error as string),
-      syncedIds, // Return IDs so UI can update state locally
+      errors: results
+        .filter((r) => !r.ok && !r.isDuplicate)
+        .map((r) => r.error as string),
+      syncedIds,
+      duplicateIds,
+      errorIds,
     }
   })
 

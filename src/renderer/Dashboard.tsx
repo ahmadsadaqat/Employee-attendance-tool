@@ -155,6 +155,7 @@ export default function Dashboard({
   const [isAlertsModalOpen, setIsAlertsModalOpen] = useState(false)
   const [isImportModalOpen, setIsImportModalOpen] = useState(false)
   const [lastCheckIn, setLastCheckIn] = useState<CheckInRecord | null>(null)
+  const [hasImportedLogs, setHasImportedLogs] = useState(false) // Gate auto-fetch until first import
 
   const [stats, setStats] = useState<DailyStats>({
     totalEmployees: 150,
@@ -445,6 +446,7 @@ export default function Dashboard({
       }
 
       if (imported > 0) {
+        setHasImportedLogs(true) // Enable auto-fetch after first successful import
         await syncToERP(true)
       }
     } catch (e: any) {
@@ -462,6 +464,12 @@ export default function Dashboard({
   // The initial import is done manually via "Import Logs" button to control date range
   // Subsequent syncs fetch all logs but DB deduplication ensures only new ones are inserted
   useEffect(() => {
+    // Don't start auto-fetch until user has done at least one manual import
+    if (!hasImportedLogs) {
+      console.log('Auto-fetch: Waiting for initial manual import')
+      return
+    }
+
     const intervalSeconds = appSettings.deviceFetchIntervalSeconds || 60 // Default 60s
     console.log(`Setting up device auto-fetch interval: ${intervalSeconds}s`)
 
@@ -470,7 +478,7 @@ export default function Dashboard({
     }, intervalSeconds * 1000)
 
     return () => clearInterval(intervalId)
-  }, [appSettings.deviceFetchIntervalSeconds])
+  }, [appSettings.deviceFetchIntervalSeconds, hasImportedLogs])
 
   const handleImportConfirm = (start: string, end: string, count: number) => {
     setIsLoading(true)
@@ -593,6 +601,7 @@ export default function Dashboard({
 
       // Auto-sync to ERP after import
       if (imported > 0) {
+        setHasImportedLogs(true) // Enable auto-fetch after first successful import
         await syncToERP(true)
       }
     } catch (e: any) {

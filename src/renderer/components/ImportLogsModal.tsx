@@ -37,10 +37,11 @@ export const ImportLogsModal: React.FC<ImportLogsModalProps> = ({
   const [endDate, setEndDate] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [initialized, setInitialized] = useState(false)
 
-  // Set default dates (last 7 days)
+  // Initialize dates only once when modal first opens (not on every open)
   useEffect(() => {
-    if (isOpen) {
+    if (isOpen && !initialized) {
       const today = new Date()
       const sevenDaysAgo = new Date(today)
       sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
@@ -54,8 +55,16 @@ export const ImportLogsModal: React.FC<ImportLogsModalProps> = ({
       }
 
       setError(null)
+      setInitialized(true)
     }
-  }, [isOpen, devices])
+  }, [isOpen, devices, initialized, selectedDeviceId])
+
+  // Reset everything when modal closes
+  const handleClose = () => {
+    setInitialized(false) // Allow re-initialization on next open
+    setError(null)
+    onClose()
+  }
 
   const handleImport = async () => {
     if (!selectedDeviceId) {
@@ -91,7 +100,7 @@ export const ImportLogsModal: React.FC<ImportLogsModalProps> = ({
         startDate,
         endDate,
       })
-      onClose()
+      handleClose() // Reset and close on success
     } catch (e: any) {
       setError(e.message || 'Failed to import logs')
     } finally {
@@ -106,7 +115,7 @@ export const ImportLogsModal: React.FC<ImportLogsModalProps> = ({
       {/* Backdrop */}
       <div
         className='absolute inset-0 bg-black/50 backdrop-blur-sm'
-        onClick={onClose}
+        onClick={handleClose}
       />
 
       {/* Modal */}
@@ -122,7 +131,7 @@ export const ImportLogsModal: React.FC<ImportLogsModalProps> = ({
             </h2>
           </div>
           <button
-            onClick={onClose}
+            onClick={handleClose}
             className='p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors'
           >
             <X size={20} />
@@ -201,7 +210,7 @@ export const ImportLogsModal: React.FC<ImportLogsModalProps> = ({
         {/* Footer */}
         <div className='flex justify-end gap-3 px-6 py-4 border-t border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50'>
           <button
-            onClick={onClose}
+            onClick={handleClose}
             disabled={isLoading}
             className='px-4 py-2 text-sm font-medium text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 transition-colors disabled:opacity-50'
           >
