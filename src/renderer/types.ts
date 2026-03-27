@@ -55,6 +55,8 @@ export interface Device {
   type: 'BIOMETRIC' | 'RFID' | 'GATE'
   ipAddress: string
   port: string
+  latitude?: string
+  longitude?: string
 }
 
 export interface SystemAlert {

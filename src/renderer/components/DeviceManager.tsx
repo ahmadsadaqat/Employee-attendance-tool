@@ -33,6 +33,8 @@ export const DeviceManager: React.FC<DeviceManagerProps> = ({
     type: 'BIOMETRIC',
     ipAddress: '192.168.1.X',
     port: '4370',
+    latitude: '',
+    longitude: '',
   })
 
   const handleConnect = async (device: Device) => {
@@ -56,6 +58,8 @@ export const DeviceManager: React.FC<DeviceManagerProps> = ({
         lastPing: 'Just now',
         ipAddress: newDevice.ipAddress || '192.168.1.100',
         port: newDevice.port || '4370',
+        latitude: newDevice.latitude,
+        longitude: newDevice.longitude,
       })
       setIsModalOpen(false)
       setNewDevice({
@@ -64,6 +68,8 @@ export const DeviceManager: React.FC<DeviceManagerProps> = ({
         type: 'BIOMETRIC',
         ipAddress: '192.168.1.X',
         port: '4370',
+        latitude: '',
+        longitude: '',
       })
     }
   }
@@ -285,6 +291,38 @@ export const DeviceManager: React.FC<DeviceManagerProps> = ({
                   }
                   className='w-full px-3 py-2 border border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded-lg focus:ring-2 focus:ring-teal-500 outline-none'
                 />
+              </div>
+              <div className='grid grid-cols-2 gap-4 mt-4'>
+                <div>
+                  <label className='block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1'>
+                    Latitude (Optional)
+                  </label>
+                  <input
+                    type='number'
+                    step='any'
+                    value={newDevice.latitude || ''}
+                    onChange={(e) =>
+                      setNewDevice({ ...newDevice, latitude: e.target.value })
+                    }
+                    className='w-full px-3 py-2 border border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded-lg focus:ring-2 focus:ring-teal-500 outline-none'
+                    placeholder='e.g. 31.5204'
+                  />
+                </div>
+                <div>
+                  <label className='block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1'>
+                    Longitude (Optional)
+                  </label>
+                  <input
+                    type='number'
+                    step='any'
+                    value={newDevice.longitude || ''}
+                    onChange={(e) =>
+                      setNewDevice({ ...newDevice, longitude: e.target.value })
+                    }
+                    className='w-full px-3 py-2 border border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded-lg focus:ring-2 focus:ring-teal-500 outline-none'
+                    placeholder='e.g. 74.3587'
+                  />
+                </div>
               </div>
               <div className='flex justify-end gap-3 mt-6'>
                 <button

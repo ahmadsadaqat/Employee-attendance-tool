@@ -295,8 +295,10 @@ export async function syncLogsToFrappe(
             log_type: log.status,
             device_id: String(log.device_id),
             device_location: deviceLocation,
-            latitude: 0.0001,
-            longitude: 0.0001,
+            // Re-added because Geo Fencing is mandatory in the user's Frappe hr settings.
+            // Sending the actual configured device coordinates as strings.
+            latitude: device?.latitude != null ? String(device.latitude) : '0.0001',
+            longitude: device?.longitude != null ? String(device.longitude) : '0.0001',
           },
         ],
       }
@@ -355,8 +357,13 @@ export async function syncLogsToFrappe(
 
         try {
           const json = JSON.parse(response.body)
-          if (json.exception) errorMsg += `: ${json.exception}`
-          else if (json._server_messages) {
+          if (json.exception) {
+            errorMsg += `: ${json.exception}`
+            // Translate the common missing shift error
+            if (errorMsg.includes("'NoneType' object has no attribute 'start_time'")) {
+              errorMsg = "Missing Shift Assignment for Employee. Please assign a shift in Frappe HR/ERPNext."
+            }
+          } else if (json._server_messages) {
             const msgs = JSON.parse(json._server_messages)
             const joined = msgs
               .map((m: any) => JSON.parse(m).message)

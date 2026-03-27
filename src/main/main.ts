@@ -298,6 +298,8 @@ app.whenReady().then(async () => {
         location?: string // Human-readable location for Frappe
         commKey?: string
         useUdp?: boolean
+        latitude?: number
+        longitude?: number
       },
     ) => {
       const creds = await getCredentials()
@@ -333,6 +335,9 @@ app.whenReady().then(async () => {
         d.commKey ?? null,
         d.useUdp ? 1 : 0,
         creds?.baseUrl,
+        undefined, // preferredId
+        d.latitude ?? null,
+        d.longitude ?? null,
       )
       return { id }
     },

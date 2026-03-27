@@ -510,7 +510,11 @@ export default function Dashboard({
         device.name,
         device.ipAddress,
         Number(device.port),
-        { location: device.location }, // Pass location to Frappe
+        { 
+          location: device.location,
+          latitude: device.latitude ? Number(device.latitude) : undefined,
+          longitude: device.longitude ? Number(device.longitude) : undefined,
+        }
       )
       addNotification(
         `New device '${device.name}' added successfully`,

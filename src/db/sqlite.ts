@@ -20,6 +20,8 @@ export type Device = {
   comm_key?: string | null
   use_udp?: number // 0 or 1
   instance_url?: string // Scoped to ERP instance
+  latitude?: number | null
+  longitude?: number | null
 }
 
 export class Database {
@@ -41,7 +43,9 @@ export class Database {
         port INTEGER NOT NULL DEFAULT 4370,
         comm_key TEXT,
         use_udp INTEGER NOT NULL DEFAULT 0,
-        instance_url TEXT
+        instance_url TEXT,
+        latitude REAL,
+        longitude REAL
       );
       CREATE TABLE IF NOT EXISTS attendance (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -127,12 +131,18 @@ export class Database {
         this.db.exec('ALTER TABLE devices ADD COLUMN location TEXT')
         console.log('Migration: Added location column to devices table')
       }
+      // Phase 16: Add latitude/longitude for frappe geofencing override
+      if (!names.includes('latitude')) {
+        this.db.exec('ALTER TABLE devices ADD COLUMN latitude REAL')
+        this.db.exec('ALTER TABLE devices ADD COLUMN longitude REAL')
+        console.log('Migration: Added latitude/longitude columns to devices table')
+      }
     } catch {}
   }
 
   static insertDevice(device: Device) {
     const stmt = this.db.prepare(
-      'INSERT INTO devices (id, name, ip, port, location, comm_key, use_udp, instance_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT INTO devices (id, name, ip, port, location, comm_key, use_udp, instance_url, latitude, longitude) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
     )
     const info = stmt.run(
       device.id ?? null,
@@ -143,6 +153,8 @@ export class Database {
       device.comm_key ?? null,
       device.use_udp ?? 0,
       device.instance_url ?? null,
+      device.latitude ?? null,
+      device.longitude ?? null,
     )
     return info.lastInsertRowid as number
   }
@@ -182,6 +194,8 @@ export class Database {
     use_udp?: number,
     instanceUrl?: string,
     preferredId?: number,
+    latitude?: number | null,
+    longitude?: number | null,
   ): number {
     // 1. Check by ID first if restoring
     if (preferredId) {
@@ -192,6 +206,8 @@ export class Database {
           location: location ?? byId.location ?? null,
           comm_key: comm_key ?? byId.comm_key ?? null,
           use_udp: use_udp ?? byId.use_udp ?? 0,
+          latitude: latitude !== undefined ? latitude : byId.latitude,
+          longitude: longitude !== undefined ? longitude : byId.longitude,
         })
         return byId.id!
       }
@@ -211,6 +227,8 @@ export class Database {
         location: location ?? existing.location ?? null,
         comm_key: comm_key ?? existing.comm_key ?? null,
         use_udp: use_udp ?? existing.use_udp ?? 0,
+        latitude: latitude !== undefined ? latitude : existing.latitude,
+        longitude: longitude !== undefined ? longitude : existing.longitude,
         // Don't change instance_url implicitly
       })
       return existing.id
@@ -226,6 +244,8 @@ export class Database {
       comm_key: comm_key ?? null,
       use_udp: use_udp ?? 0,
       instance_url: instanceUrl,
+      latitude: latitude ?? null,
+      longitude: longitude ?? null,
     })
   }
 
@@ -496,7 +516,7 @@ export class Database {
 
   static updateDevice(
     id: number,
-    fields: Partial<Pick<Device, 'name' | 'location' | 'comm_key' | 'use_udp'>>,
+    fields: Partial<Pick<Device, 'name' | 'location' | 'comm_key' | 'use_udp' | 'latitude' | 'longitude'>>,
   ) {
     const sets: string[] = []
     const values: any[] = []
@@ -515,6 +535,14 @@ export class Database {
     if (fields.use_udp !== undefined) {
       sets.push('use_udp=?')
       values.push(fields.use_udp)
+    }
+    if (fields.latitude !== undefined) {
+      sets.push('latitude=?')
+      values.push(fields.latitude)
+    }
+    if (fields.longitude !== undefined) {
+      sets.push('longitude=?')
+      values.push(fields.longitude)
     }
     if (!sets.length) return
     values.push(id)
