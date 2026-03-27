@@ -475,6 +475,17 @@ export class Database {
       .get(employeeId) as Attendance | undefined
   }
 
+  static getLogByEmployeeAndTimestamp(
+    employeeId: string,
+    timestamp: string,
+  ): Attendance | undefined {
+    return this.db
+      .prepare(
+        'SELECT * FROM attendance WHERE employee_id = ? AND timestamp = ? LIMIT 1',
+      )
+      .get(employeeId, timestamp) as Attendance | undefined
+  }
+
   static listAttendanceByDevice(deviceId: number, limit = 100) {
     return this.db
       .prepare(

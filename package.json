@@ -13,7 +13,7 @@
     "build:win": "node scripts/build-electron.mjs && vite build && electron-builder --win",
     "build:app": "vite build",
     "lint": "echo 'no linter configured'",
-    "postinstall": "electron-builder install-app-deps"
+    "postinstall": "electron-builder install-app-deps && node scripts/patch-zklib.js"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.90.12",

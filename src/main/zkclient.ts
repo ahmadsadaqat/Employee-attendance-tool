@@ -109,31 +109,29 @@ export class ZKClient {
       if (!list) return []
 
       // Map to our schema
-      const mapped = list.map((r: any) => {
+      const mapped = list.map((r: any, idx: number) => {
         const deviceUserId = String(
           r?.deviceUserId ?? r?.uid ?? r?.userId ?? r?.user?.id ?? '',
         )
         const ts = r?.recordTime || r?.timestamp || r?.time || Date.now()
-        const attType = r?.attendanceType ?? r?.type ?? r?.state ?? 0
-        // standard zk: 0=CheckIn, 1=CheckOut, 2=BreakOut, 3=BreakIn, 4=OT-In, 5=OT-Out
-        // We'll treat 1, 2, 5 as OUT. Everything else (0, 3, 4) as IN.
-        // Also handle string values loosely.
-        const typeInt = parseInt(String(attType), 10)
-        const isOut = [1, 2, 5].includes(typeInt)
 
-        const status = isOut ? 'OUT' : 'IN'
+        // node-zklib (patched) decodes inOutStatus from byte 31 of the attendance record:
+        //   0 = Check-In (IN)
+        //   1 = Check-Out (OUT)
+        const inOutStatus = r?.inOutStatus
+        const status: 'IN' | 'OUT' = inOutStatus === 1 ? 'OUT' : 'IN'
 
-        // Debug log (optional, remove later if spammy)
-        if (process.env.VITE_DEV_SERVER) {
-          console.log(
-            `Main: Mapped log type ${attType} -> ${status} for ${deviceUserId}`,
-          )
-        }
+        // Always log raw record data for debugging
+        console.log(
+          `ZKClient: Record[${idx}] deviceUserId=${deviceUserId} ` +
+          `inOutStatus=${inOutStatus} -> ${status} ` +
+          `keys=[${Object.keys(r).join(',')}]`,
+        )
 
         return {
           employee_id: deviceUserId,
           timestamp: new Date(ts).toISOString(),
-          status: status as 'IN' | 'OUT',
+          status,
         }
       })
 

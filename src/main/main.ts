@@ -451,7 +451,7 @@ app.whenReady().then(async () => {
         >()
 
         for (const log of logs) {
-          // 1. Get last status for this employee - check in-memory first, then DB
+          // 1. Get last log for this employee (for double-punch detection only)
           let lastLog = lastLogPerEmployee.get(log.employee_id)
           if (!lastLog) {
             const dbLog = Database.getLastLog(log.employee_id)
@@ -460,10 +460,8 @@ app.whenReady().then(async () => {
             }
           }
 
-          let newStatus: 'IN' | 'OUT' = 'IN' // Default to IN if no history
-
+          // 2. Check for double punch
           if (lastLog) {
-            // Check for double punch (configurable threshold)
             const timeDiff =
               new Date(log.timestamp).getTime() -
               new Date(lastLog.timestamp).getTime()
@@ -471,12 +469,11 @@ app.whenReady().then(async () => {
               console.log(
                 `Main: Recording double punch for ${log.employee_id} within ${timeDiff}ms (Threshold: ${thresholdMs}ms)`,
               )
-              // Save as double punch (synced=4) so it appears in UI instead of being ignored
               const dpResult = Database.insertAttendance({
                 device_id: deviceId,
                 employee_id: log.employee_id,
                 timestamp: log.timestamp,
-                status: lastLog.status, // Keep same status as previous log
+                status: lastLog.status,
                 synced: 4, // 4 = double-punch (ignored)
               })
               if (dpResult.inserted) {
@@ -484,13 +481,16 @@ app.whenReady().then(async () => {
               }
               continue
             }
-
-            // Toggle Status
-            if (lastLog.status === 'IN') {
-              newStatus = 'OUT'
-            }
           }
 
+          // 3. Use the status directly from ZKTeco device (patched node-zklib)
+          //    inOutStatus: 0=CheckIn (IN), 1=CheckOut (OUT)
+          const newStatus: 'IN' | 'OUT' = log.status
+          console.log(
+            `Main: Device-reported status for ${log.employee_id}: ${newStatus}`,
+          )
+
+          // 4. Insert into DB (OR IGNORE if duplicate timestamp)
           const result = Database.insertAttendance({
             device_id: deviceId,
             employee_id: log.employee_id,
@@ -498,14 +498,16 @@ app.whenReady().then(async () => {
             status: newStatus,
             synced: 0,
           })
+
           if (result.inserted) {
             imported += 1
-            // Update in-memory tracking for next iteration ONLY if actually inserted
-            lastLogPerEmployee.set(log.employee_id, {
-              timestamp: log.timestamp,
-              status: newStatus,
-            })
           }
+
+          // Update in-memory tracking for double-punch detection of subsequent records
+          lastLogPerEmployee.set(log.employee_id, {
+            timestamp: log.timestamp,
+            status: newStatus,
+          })
         }
         console.log(
           `Main: Imported ${imported} new logs into DB (${ignored} double punches ignored)`,
