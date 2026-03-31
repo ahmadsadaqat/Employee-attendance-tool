@@ -121,6 +121,7 @@ export const useDeviceLogs = (enabled: boolean = false) => {
       let totalImported = 0
       let totalIgnored = 0
 
+      let errors: string[] = []
       for (const device of devices) {
         try {
           const result = await (window as any).api.fetchLogs(
@@ -131,16 +132,29 @@ export const useDeviceLogs = (enabled: boolean = false) => {
             device.useUdp === 1,
             { doublePunchThreshold: threshold },
           )
+          
+          if (result.error) {
+             throw new Error(result.error)
+          }
+
           if (result.imported) totalImported += result.imported
           if (result.ignored) totalIgnored += result.ignored
-        } catch (e) {
+        } catch (e: any) {
           console.error(
             `Failed to fetch from device ${device.name} (${device.ip}):`,
             e,
           )
+          errors.push(`Device ${device.name}: ${e.message}`)
         }
       }
-      return { imported: totalImported, ignored: totalIgnored }
+      
+      if (errors.length > 0 && totalImported === 0) {
+        // If everything failed, or if we accumulated errors, let's throw
+        // so the UI shows an error instead of "Imported 0 logs"
+        throw new Error(errors.join(', '))
+      }
+      
+      return { imported: totalImported, ignored: totalIgnored, errors }
     },
     onSuccess: () => {
       // Broadly invalidate frappe queries to pick up new data regardless of URL

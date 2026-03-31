@@ -592,6 +592,10 @@ export default function Dashboard({
 
       const imported = result?.imported || 0
       const ignored = result?.ignored || 0
+      
+      if (result?.error) {
+        throw new Error(result.error)
+      }
 
       let message = `Imported ${imported} logs from ${params.deviceName}`
       if (ignored > 0) {

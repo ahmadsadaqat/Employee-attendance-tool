@@ -72,13 +72,13 @@ patchFile(path.join(ZKLIB_DIR, 'zklibtcp.js'), [
   {
     name: 'getAttendances: auto-detect RECORD_PACKET_SIZE',
     find: `    const RECORD_PACKET_SIZE = 40\r\n`,
-    replace: `    //Notes on record packet size:\r\n    //40 for tft and b&w devices (default)\r\n    //49 for iface devices\r\n    const RECORD_PACKET_SIZE = recordData.length % 40 !== 0 ? 49 : 40;\r\n\r\n    // Ensure the data size aligns with RECORD_PACKET_SIZE\r\n    if (recordData.length % RECORD_PACKET_SIZE !== 0) {\r\n        console.warn("Warning: Attendance data may be incomplete or corrupt");\r\n    }\r\n`,
+    replace: `    //Notes on record packet size:\r\n    //40 for tft and b&w devices (default)\r\n    //49 for iface devices\r\n    let RECORD_PACKET_SIZE = 40;\r\n    if (recordData.length % 49 === 0 && recordData.length % 40 !== 0) {\r\n        RECORD_PACKET_SIZE = 49;\r\n    } else if (recordData.length % 40 === 0 && recordData.length % 49 !== 0) {\r\n        RECORD_PACKET_SIZE = 40;\r\n    } else if (recordData.length % 49 === 0 && recordData.length % 40 === 0) {\r\n        RECORD_PACKET_SIZE = 49;\r\n    }\r\n\r\n    // Ensure the data size aligns with RECORD_PACKET_SIZE\r\n    if (recordData.length % RECORD_PACKET_SIZE !== 0) {\r\n        console.warn("Warning: Attendance data may be incomplete or corrupt");\r\n    }\r\n`,
   },
   {
     // Fallback for LF line endings
     name: 'getAttendances: auto-detect RECORD_PACKET_SIZE (LF)',
     find: `    const RECORD_PACKET_SIZE = 40\n`,
-    replace: `    //Notes on record packet size:\n    //40 for tft and b&w devices (default)\n    //49 for iface devices\n    const RECORD_PACKET_SIZE = recordData.length % 40 !== 0 ? 49 : 40;\n\n    // Ensure the data size aligns with RECORD_PACKET_SIZE\n    if (recordData.length % RECORD_PACKET_SIZE !== 0) {\n        console.warn("Warning: Attendance data may be incomplete or corrupt");\n    }\n`,
+    replace: `    //Notes on record packet size:\n    //40 for tft and b&w devices (default)\n    //49 for iface devices\n    let RECORD_PACKET_SIZE = 40;\n    if (recordData.length % 49 === 0 && recordData.length % 40 !== 0) {\n        RECORD_PACKET_SIZE = 49;\n    } else if (recordData.length % 40 === 0 && recordData.length % 49 !== 0) {\n        RECORD_PACKET_SIZE = 40;\n    } else if (recordData.length % 49 === 0 && recordData.length % 40 === 0) {\n        RECORD_PACKET_SIZE = 49; \n    }\n\n    // Ensure the data size aligns with RECORD_PACKET_SIZE\n    if (recordData.length % RECORD_PACKET_SIZE !== 0) {\n        console.warn("Warning: Attendance data may be incomplete or corrupt");\n    }\n`,
   },
 ]);
 
