@@ -50,6 +50,7 @@ export class ZKClient {
             () => {}, // silence close warning during attempt
           )
           await zk.zklibTcp.connect()
+          zk.zklibTcp.is_connect = true
           zk.connectionType = 'tcp'
           console.log('ZKClient: TCP Connected, fetching logs...')
 
@@ -115,11 +116,14 @@ export class ZKClient {
         )
         const ts = r?.recordTime || r?.timestamp || r?.time || Date.now()
 
-        // node-zklib (patched) decodes inOutStatus from byte 31 of the attendance record:
-        //   0 = Check-In (IN)
-        //   1 = Check-Out (OUT)
-        const inOutStatus = r?.inOutStatus
-        const status: 'IN' | 'OUT' = inOutStatus === 1 ? 'OUT' : 'IN'
+        // node-zklib PR #60 decodes inOutStatus as a string ('IN' or 'OUT') internally
+        let inOutStatus = r?.inOutStatus
+        
+        // Ensure backwards compatibility just in case we get a numeric value from an older logic
+        if (inOutStatus === 0) inOutStatus = 'IN';
+        if (inOutStatus === 1) inOutStatus = 'OUT';
+        
+        const status: 'IN' | 'OUT' = inOutStatus === 'OUT' ? 'OUT' : 'IN'
 
         // Always log raw record data for debugging
         console.log(
