@@ -434,6 +434,10 @@ export default function Dashboard({
       const imported = result?.imported || 0
       const ignored = result?.ignored || 0
 
+      if (result?.error) {
+        throw new Error(result.error)
+      }
+
       if (!options?.silent) {
         let message = `Synced ${imported} logs from devices`
         if (ignored > 0) {
