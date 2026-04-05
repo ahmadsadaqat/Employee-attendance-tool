@@ -1,0 +1,31 @@
+name: Open Source PR Checks
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install Dependencies natively 
+        # By removing postinstall locally for tests, we ensure better-sqlite3 builds for Node (Vitest) 
+        # instead of compiling against Electron's Node bindings.
+        run: npm install --ignore-scripts
+
+      - name: Rebuild SQLite for Node natively
+        run: npm rebuild better-sqlite3
+
+      - name: Run Database Integrity Tests 
+        run: npm test

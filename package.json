@@ -13,6 +13,8 @@
     "build:win": "node scripts/build-electron.mjs && vite build && electron-builder --win",
     "build:app": "vite build",
     "lint": "echo 'no linter configured'",
+    "test": "vitest run --root .",
+    "test:watch": "vitest --root .",
     "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {
@@ -47,6 +49,7 @@
     "tailwindcss": "^3.4.17",
     "typescript": "^5.9.2",
     "vite": "^5.4.20",
+    "vitest": "^4.1.2",
     "wait-on": "^8.0.5"
   },
   "build": {
@@ -82,8 +85,7 @@
         {
           "target": "portable",
           "arch": [
-            "x64",
-            "ia32"
+            "x64"
           ]
         }
       ],

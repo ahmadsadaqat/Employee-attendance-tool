@@ -67,6 +67,6 @@ npm run build
 **Note on Windows Builds:**
 Because this application is developed natively on Linux and utilizes native bindings (`better-sqlite3`), compiling the `.exe` directly on Linux involves heavy cross-compilation restrictions. 
 To completely bypass this, we provide a fully automated **GitHub Action** (`windows-build.yml`). 
-Simply push your code to the `main` branch or trigger it via the Actions tab, and GitHub will natively compile standalone `.exe` files for both **Windows x64 (64-bit)** and **Windows x32 (32-bit)** architectures.
+Simply push your code to the `main` branch or trigger it via the Actions tab, and GitHub will natively compile a standalone `.exe` for Windows x64.
 
-*The resulting portable Windows executables are highly optimized, weighing in at an incredibly lightweight **~75 MB** footprint!*
+*The resulting portable Windows executable is highly optimized, weighing in at an incredibly lightweight **~75 MB** footprint!*

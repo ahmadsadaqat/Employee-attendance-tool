@@ -12,11 +12,8 @@ jobs:
       matrix:
         include:
           - arch: x64
-            build_script: build:win -- --x64
+            build_script: build:win
             artifact_name: nexo-employees-windows-x64
-          - arch: ia32
-            build_script: build:win -- --ia32
-            artifact_name: nexo-employees-windows-x32
 
     steps:
       - name: Checkout repo
