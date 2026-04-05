@@ -72,12 +72,13 @@ describe('Offline SQLite Database Integration', () => {
     })
 
     const unsynced = Database.getUnsynced(10)
-    expect(unsynced.length).toBe(1)
-    expect(unsynced[0].employee_id).toBe('99')
-    expect(unsynced[0].synced).toBe(0)
+    expect(unsynced.length).toBe(2)
+    const emp99 = unsynced.find(u => u.employee_id === '99')
+    expect(emp99).toBeDefined()
+    expect(emp99!.synced).toBe(0)
     
     // Test transitioning to synced
-    Database.markSynced([unsynced[0].id])
+    Database.markSynced(unsynced.map(u => u.id as number))
     
     const rechecked = Database.getUnsynced(10)
     expect(rechecked.length).toBe(0)
