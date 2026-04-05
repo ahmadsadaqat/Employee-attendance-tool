@@ -12,8 +12,11 @@ jobs:
       matrix:
         include:
           - arch: x64
-            build_script: build:win
+            build_script: build:win -- --x64
             artifact_name: nexo-employees-windows-x64
+          - arch: ia32
+            build_script: build:win -- --ia32
+            artifact_name: nexo-employees-windows-x32
 
     steps:
       - name: Checkout repo
@@ -22,7 +25,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - name: Install dependencies

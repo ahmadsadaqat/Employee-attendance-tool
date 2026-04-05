@@ -1,18 +1,72 @@
-# Nexo Employees
+# Frappe Zkteco Bridge for Punches checkin and checkout
 
-Electron + React app to sync ZKTeco attendance logs with ERPNext (offline-first).
+A robust, offline-first Electron and React desktop application designed to bridge the gap between ZKTeco biometric devices and your Frappe / ERPNext backend. It connects directly to your local hardware, securely local-caches attendance data, and seamlessly pushes check-in and check-out logs to your server.
 
-## Dev
+## Table of Contents
+1. [Overview](#1-overview)
+2. [Prerequisites](#2-prerequisites)
+3. [Development](#3-development)
 
+---
+
+## 1. Overview
+
+### What it provides
+*   **Direct Hardware Connection:** Connects and interacts directly with ZKTeco biometric models over TCP/IP to fetch physical punches.
+*   **Offline-First Reliability:** Implements a local SQLite cache. Network outages or Frappe downtime will never result in lost attendance logs.
+*   **Intelligent Syncing:** Provides both manual "Force ERP Push" and background auto-sync functionality, ignoring previously synced or double punches.
+*   **Centralized Analytics:** Offers a local UI dashboard to review fetched device entries before they hit your external Frappe instance.
+*   **Zero-Touch Reboots:** Includes a built-in configuration to automatically launch the application and resume synchronization pipelines on Windows/System startup.
+
+### Usage
+1.  Run the application on a network that can reach your local ZKTeco devices.
+2.  Login via the application UI using your Frappe instance URL, API Key, and API Secret.
+3.  Add your ZKTeco device endpoints to the manager (`IP:Port`).
+4.  Optionally enable "Auto Sync" in the settings, or simply wait for the automatic polling intervals to capture and relay recent punches.
+
+---
+
+## 2. Prerequisites
+
+### Server-Side App Required: `attendance-bridge-module`
+To run this application and successfully communicate with Frappe, you are required to install the `attendance-bridge-module`. It lives in its own repository and provides the custom endpoints necessary to accept the push logs from this app.
+
+**Server Repo (Install & Server-Side Documentation):**  
+[https://github.com/Nexo-ERP-Pvt-Limited/attendance-bridge-module](https://github.com/Nexo-ERP-Pvt-Limited/attendance-bridge-module)
+
+**Install via Bench:**
 ```sh
-npm install
-npm run start
+cd /path/to/your/frappe-bench
+bench get-app https://github.com/Nexo-ERP-Pvt-Limited/attendance-bridge-module
+bench install-app attendance_bridge
+bench migrate
 ```
 
-This starts Vite (renderer) and Electron.
+> **Note:** All server‑side configuration, workflows, and ERP-end zkteco configurations belong deeply in that repository. This local Bridge repo focuses solely on the edge-networking for ZKTeco check-ins and check-outs, acting as the offline-first bridge.
 
-## Notes
+---
 
-- Local database at `data/attendance.db` using better-sqlite3.
-- IPC exposed via `window.api` in preload.
-- ZKTeco client currently has a connection test stub; implement log fetching per model.
+## 3. Development
+
+If you wish to contribute to the UI or Electron handlers:
+
+```sh
+# Install Dependencies
+npm install
+
+# Start the Development Server (Electron + Vite)
+npm run dev
+```
+
+### Packaging / Build Release
+To compile the raw React into static files and generate an executable for your platform (Linux/macOS natively):
+```sh
+npm run build
+```
+
+**Note on Windows Builds:**
+Because this application is developed natively on Linux and utilizes native bindings (`better-sqlite3`), compiling the `.exe` directly on Linux involves heavy cross-compilation restrictions. 
+To completely bypass this, we provide a fully automated **GitHub Action** (`windows-build.yml`). 
+Simply push your code to the `main` branch or trigger it via the Actions tab, and GitHub will natively compile standalone `.exe` files for both **Windows x64 (64-bit)** and **Windows x32 (32-bit)** architectures.
+
+*The resulting portable Windows executables are highly optimized, weighing in at an incredibly lightweight **~75 MB** footprint!*

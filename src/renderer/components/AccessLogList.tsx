@@ -340,9 +340,6 @@ export const AccessLogList: React.FC<AccessLogListProps> = ({
                           <div className='font-semibold text-slate-800 dark:text-slate-200'>
                             {log.employeeName}
                           </div>
-                          <div className='text-xs text-slate-400'>
-                            {log.employeeId}
-                          </div>
                         </div>
                       </div>
                     </td>

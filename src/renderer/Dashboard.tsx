@@ -38,7 +38,6 @@ import { AccessLogList } from './components/AccessLogList'
 import { SettingsView } from './components/SettingsView'
 import { AlertsModal } from './components/AlertsModal'
 import { CheckInToast } from './components/CheckInToast'
-import { ImportFilterModal } from './components/ImportFilterModal'
 import { UserProfile } from './components/UserProfile'
 import {
   AccessType,
@@ -51,58 +50,7 @@ import {
   User,
 } from './types'
 
-// Mock Data Generators
-const generateSingleCheckIn = (synced: boolean = false): CheckInRecord => {
-  const names = [
-    'Alice Johnson',
-    'Bob Smith',
-    'Charlie Brown',
-    'Diana Prince',
-    'Evan Wright',
-    'Fiona Green',
-    'George Hill',
-  ]
-  const depts = ['Engineering', 'Sales', 'HR', 'Marketing', 'Operations']
-  const devicesAndLocs = [
-    { device: 'Main Entrance Bio-1', location: 'Main Lobby' },
-    { device: 'Lobby Turnstile', location: 'Lobby North' },
-    { device: 'Warehouse Gate A', location: 'Loading Dock' },
-    { device: 'Server Room Bio', location: 'Server Room' },
-  ]
 
-  const i = Math.floor(Math.random() * names.length)
-  const devInfo =
-    devicesAndLocs[Math.floor(Math.random() * devicesAndLocs.length)]
-
-  return {
-    id: `chk-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-    employeeId: `EMP-${1000 + i}`,
-    employeeName: names[i],
-    department: depts[i % depts.length],
-    avatar: `https://picsum.photos/seed/${i + 205}/100/100`,
-    timestamp: new Date().toISOString(),
-    device: devInfo.device,
-    location: devInfo.location,
-    type: Math.random() > 0.4 ? 'CHECK_IN' : ('CHECK_OUT' as AccessType),
-    syncStatus: synced ? 1 : 0,
-  }
-}
-
-const generateMockCheckIns = (count: number): CheckInRecord[] => {
-  return Array.from({ length: count })
-    .map((_, idx) => {
-      const rec = generateSingleCheckIn(Math.random() > 0.1)
-      // Adjust timestamps for history
-      rec.timestamp = new Date(
-        Date.now() - Math.floor(Math.random() * 10000000),
-      ).toISOString()
-      return rec
-    })
-    .sort(
-      (a, b) =>
-        new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
-    )
-}
 
 const chartData = [
   { time: '06:00', count: 0 },
@@ -153,7 +101,6 @@ export default function Dashboard({
   const [devices, setDevices] = useState<Device[]>([])
   const [alerts, setAlerts] = useState<SystemAlert[]>([])
   const [isAlertsModalOpen, setIsAlertsModalOpen] = useState(false)
-  const [isImportModalOpen, setIsImportModalOpen] = useState(false)
   const [lastCheckIn, setLastCheckIn] = useState<CheckInRecord | null>(null)
   const [hasImportedLogs, setHasImportedLogs] = useState(false) // Gate auto-fetch until first import
 
@@ -484,29 +431,7 @@ export default function Dashboard({
     return () => clearInterval(intervalId)
   }, [appSettings.deviceFetchIntervalSeconds, hasImportedLogs])
 
-  const handleImportConfirm = (start: string, end: string, count: number) => {
-    setIsLoading(true)
-    setTimeout(() => {
-      const imported = generateMockCheckIns(count)
-      // Mark them as not synced yet to simulate import flow
-      const withSyncState = imported.map((r) => ({
-        ...r,
-        syncStatus: 0 as const,
-      }))
-      setCheckIns((prev) =>
-        [...withSyncState, ...prev].sort(
-          (a, b) =>
-            new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
-        ),
-      )
-      setIsLoading(false)
-      addNotification(
-        `Imported ${count} logs from devices (${start} to ${end})`,
-        'SUCCESS',
-        'Manual Import',
-      )
-    }, 1000)
-  }
+
 
   const handleAddDevice = async (device: Device) => {
     try {
@@ -798,14 +723,7 @@ export default function Dashboard({
 
               {/* Action Buttons: Side by Side on Right */}
               <div className='flex flex-row gap-3 w-full xl:w-auto justify-end'>
-                <button
-                  onClick={() => setIsImportModalOpen(true)}
-                  disabled={isLoading}
-                  className='flex items-center gap-2 px-3 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 shadow-sm transition-all active:scale-95 disabled:opacity-70 whitespace-nowrap'
-                >
-                  <Download size={16} />
-                  Force Import
-                </button>
+
                 <button
                   onClick={() => handleForceFetchDevices()}
                   disabled={isLoading}
@@ -1069,11 +987,7 @@ export default function Dashboard({
         onClearAll={handleClearAlerts}
       />
 
-      <ImportFilterModal
-        isOpen={isImportModalOpen}
-        onClose={() => setIsImportModalOpen(false)}
-        onConfirm={handleImportConfirm}
-      />
+
     </div>
   )
 }
