@@ -41,14 +41,6 @@ export interface FrappeSyncResult {
 }
 
 /**
- * Check if Frappe sync is enabled via environment variable
- */
-export function isFrappeSyncEnabled(): boolean {
-  const enabled = process.env.FRAPPE_SYNC_ENABLED
-  return enabled === 'true' || enabled === '1'
-}
-
-/**
  * Get the Frappe base URL from environment or fallback
  */
 export function getFrappeBaseUrl(fallbackUrl?: string): string | null {

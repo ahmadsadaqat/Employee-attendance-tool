@@ -164,7 +164,7 @@ export default function Dashboard({
   })
 
   const [appSettings, setAppSettings] = useState<AppSettings>({
-    erpEndpoint: 'https://api.nexo-erp.com/v1/sync',
+    erpEndpoint: '',
     syncIntervalMinutes: 15,
     autoSync: true,
     emailNotifications: true,
@@ -434,8 +434,8 @@ export default function Dashboard({
       const imported = result?.imported || 0
       const ignored = result?.ignored || 0
 
-      if (result?.error) {
-        throw new Error(result.error)
+      if (result?.errors && result.errors.length > 0) {
+        throw new Error(result.errors.join(', '))
       }
 
       if (!options?.silent) {

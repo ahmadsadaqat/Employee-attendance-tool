@@ -1,4 +1,3 @@
-import 'dotenv/config'
 import {
   app,
   BrowserWindow,
@@ -16,7 +15,6 @@ import AutoLaunch from 'auto-launch'
 import { FrappeApp } from 'frappe-js-sdk'
 import {
   syncLogsToFrappe,
-  isFrappeSyncEnabled,
   getFrappeBaseUrl,
 } from './frappe-sync'
 import {
@@ -1045,11 +1043,6 @@ app.whenReady().then(async () => {
     const { default: isOnline } = await import('is-online')
     if (!(await isOnline({ timeout: 2000 }))) return
 
-    // 2. Check if Frappe sync is enabled
-    if (!isFrappeSyncEnabled()) {
-      return
-    }
-
     // 3. Get credentials for auth
     const creds = await getCredentials()
     if (!creds) {
@@ -1127,20 +1120,13 @@ app.whenReady().then(async () => {
 
   ipcMain.handle('frappe:get-config', () => {
     return {
-      enabled: isFrappeSyncEnabled(),
+      enabled: true,
       baseUrl: getFrappeBaseUrl(),
     }
   })
 
   ipcMain.handle('frappe:sync', async () => {
     console.log('Main: Manual Frappe sync triggered')
-
-    if (!isFrappeSyncEnabled()) {
-      return {
-        success: false,
-        error: 'Frappe sync is disabled. Set FRAPPE_SYNC_ENABLED=true in .env',
-      }
-    }
 
     try {
       const creds = await getCredentials()

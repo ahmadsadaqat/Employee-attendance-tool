@@ -414,9 +414,7 @@ function Login({ onUrlChange }: { onUrlChange: (url: string) => void }) {
 
 // Create a wrapper component that can handle URL changes
 function AppWrapper() {
-  const [frappeUrl, setFrappeUrl] = useState<string>(
-    'https://portal.nexo4erp.com',
-  )
+  const [frappeUrl, setFrappeUrl] = useState<string>('')
   const [isUrlLoaded, setIsUrlLoaded] = useState(false)
 
   useEffect(() => {
