@@ -124,13 +124,21 @@ export const useDeviceLogs = (enabled: boolean = false) => {
       let errors: string[] = []
       for (const device of devices) {
         try {
+          const today = new Date()
+          const yesterday = new Date(today)
+          yesterday.setDate(yesterday.getDate() - 1) // default to yesterday and today
+
           const result = await (window as any).api.fetchLogs(
             device.ip,
             device.port,
             device.name,
             device.commKey,
             device.useUdp === 1,
-            { doublePunchThreshold: threshold },
+            { 
+              doublePunchThreshold: threshold,
+              startDate: yesterday.toISOString().split('T')[0],
+              endDate: today.toISOString().split('T')[0]
+            },
           )
           
           if (result.error) {
