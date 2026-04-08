@@ -289,8 +289,8 @@ export async function syncLogsToFrappe(
             device_location: deviceLocation,
             // Re-added because Geo Fencing is mandatory in the user's Frappe hr settings.
             // Sending the actual configured device coordinates as strings.
-            latitude: device?.latitude != null ? String(device.latitude) : '0.0001',
-            longitude: device?.longitude != null ? String(device.longitude) : '0.0001',
+            latitude: device?.latitude != null ? Number(device.latitude) : 0.0001,
+            longitude: device?.longitude != null ? Number(device.longitude) : 0.0001,
           },
         ],
       }

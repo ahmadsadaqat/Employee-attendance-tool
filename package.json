@@ -6,6 +6,10 @@
   "main": "dist-electron/main.cjs",
   "type": "commonjs",
   "author": "Ahmad Sadaqat (https://github.com/ahmadsadaqat)",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ahmadsadaqat/nexo-employees.git"
+  },
   "license": "MIT",
   "scripts": {
     "dev": "concurrently -k \"node scripts/build-electron.mjs --watch\" \"vite\" \"wait-on tcp:5173 && cross-env VITE_DEV_SERVER=true electron .\"",
@@ -22,6 +26,7 @@
     "auto-launch": "^5.0.6",
     "better-sqlite3": "^11.10.0",
     "electron-store": "^8.1.0",
+    "electron-updater": "^6.8.3",
     "frappe-react-sdk": "^1.12.0",
     "is-online": "^12.0.1",
     "lucide-react": "^0.561.0",
@@ -54,6 +59,7 @@
   },
   "build": {
     "appId": "com.nexo.employees",
+    "publish": ["github"],
     "icon": "assets/icon.svg",
     "files": [
       "dist/**/*",

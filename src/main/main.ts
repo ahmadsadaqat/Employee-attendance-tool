@@ -12,6 +12,7 @@ import {
 import path from 'node:path'
 import Store from 'electron-store'
 import AutoLaunch from 'auto-launch'
+import { autoUpdater } from 'electron-updater'
 import { FrappeApp } from 'frappe-js-sdk'
 import {
   syncLogsToFrappe,
@@ -250,6 +251,10 @@ app.whenReady().then(async () => {
 
   createWindow()
   createTray()
+  
+  if (!process.env.VITE_DEV_SERVER) {
+    autoUpdater.checkForUpdatesAndNotify()
+  }
 
   console.log('Main process: Window created, IPC handlers registered')
 
@@ -705,8 +710,8 @@ app.whenReady().then(async () => {
           time: formattedTime,
           log_type: u.status, // "IN" or "OUT"
           device_id: String(u.device_id),
-          latitude: device?.latitude != null ? String(device.latitude) : '0.0001',
-          longitude: device?.longitude != null ? String(device.longitude) : '0.0001',
+          latitude: device?.latitude != null ? Number(device.latitude) : 0.0001,
+          longitude: device?.longitude != null ? Number(device.longitude) : 0.0001,
         }
 
         await frappeRequest('Employee Checkin', 'POST', payload)
