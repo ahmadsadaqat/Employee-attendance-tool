@@ -577,207 +577,57 @@ app.whenReady().then(async () => {
     },
   )
 
-  // Sync Logic
+  // Sync Logic — delegates to optimized syncLogsToFrappe with concurrency
   ipcMain.handle('sync:run', async () => {
     console.log('Main: Starting Sync Run...')
 
-    // We need credentials first to know which instance we are syncing for
     const creds = await getCredentials()
     if (!creds) {
       console.warn('Main: No ERP credentials found')
       return { synced: 0, errors: ['No ERP credentials stored'] }
     }
 
-    // Get unsynced from DB filtered by instance URL
-    const unsynced = Database.getUnsynced(100, creds.baseUrl)
+    const baseUrl = getFrappeBaseUrl(creds.baseUrl)
+    if (!baseUrl) {
+      return { synced: 0, errors: ['No Frappe base URL configured'] }
+    }
+
+    // Fetch up to 500 unsynced logs per manual sync run
+    const unsynced = Database.getUnsynced(500, creds.baseUrl)
     console.log(
       `Main: Found ${unsynced.length} unsynced records for ${creds.baseUrl}`,
     )
 
     if (!unsynced.length) return { synced: 0, errors: [] }
 
-    console.log(`Main: Using credentials for ${creds.baseUrl}`)
-
-    const { baseUrl, auth } = creds
-
-    // Helper for direct requests (bypassing SDK cookie issues in Node)
-    const frappeRequest = async (
-      endpoint: string,
-      method: string = 'GET',
-      body?: any,
-    ) => {
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-      }
-      if (auth.sid) {
-        headers['Cookie'] = `sid=${auth.sid}`
-      } else if (auth.apiKey) {
-        headers['Authorization'] = `token ${auth.apiKey}:${auth.apiSecret}`
-      }
-
-      const url = `${baseUrl.replace(/\/$/, '')}/api/resource/${endpoint}`
-      const options: RequestInit = { method, headers }
-      if (body) options.body = JSON.stringify(body)
-
-      const res = await fetch(url, options)
-      if (!res.ok) {
-        const text = await res.text()
-        let msg = text
-        try {
-          const json = JSON.parse(text)
-          // Try to extract readable message
-          if (json.exception) msg = json.exception
-          if (json._server_messages) {
-            const msgs = JSON.parse(json._server_messages)
-            const joined = msgs
-              .map((m: any) => JSON.parse(m).message)
-              .join(', ')
-            if (joined) msg = joined
-          }
-        } catch {}
-        throw new Error(`Request failed (${res.status}): ${msg}`)
-      }
-      return res.json()
-    }
-
-    // Fetch Employees to map Biometric ID -> Employee ID
-    console.log('Main: Fetching employee mapping...')
-    let employeeMap = new Map<string, string>()
     try {
-      const params = new URLSearchParams({
-        fields: JSON.stringify(['name', 'attendance_device_id']),
-        limit_page_length: '1000',
-      })
-      const response = await frappeRequest(`Employee?${params.toString()}`)
-      const employees = response.data || []
+      const result = await syncLogsToFrappe(unsynced, baseUrl, creds.auth)
 
-      for (const emp of employees) {
-        if (emp.attendance_device_id) {
-          // Store mapping: "5" -> "HR-EMP-00001"
-          employeeMap.set(String(emp.attendance_device_id), emp.name)
-        }
+      // Mark logs based on result status
+      if (result.syncedIds.length > 0) {
+        Database.markSynced(result.syncedIds)
       }
+      if (result.duplicateIds.length > 0) {
+        Database.markDuplicate(result.duplicateIds)
+      }
+      if (result.errorIds.length > 0) {
+        Database.markError(result.errorIds)
+      }
+
       console.log(
-        `Main: Mapped ${employeeMap.size} employees with biometric IDs`,
+        `Main: Sync complete. Synced: ${result.syncedIds.length}, Duplicates: ${result.duplicateIds.length}, Errors: ${result.errorIds.length}`,
       )
+
+      return {
+        synced: result.syncedIds.length,
+        errors: result.errors,
+        syncedIds: result.syncedIds,
+        duplicateIds: result.duplicateIds,
+        errorIds: result.errorIds,
+      }
     } catch (e: any) {
-      console.error('Main: Failed to fetch employee mapping', e)
-      return { synced: 0, errors: [`Failed to map employees: ${e.message}`] }
-    }
-
-    const results: {
-      ok: boolean
-      error?: string
-      isDuplicate?: boolean
-      isEmployeeError?: boolean
-    }[] = []
-    console.log(`Main: Syncing ${unsynced.length} records...`)
-
-    for (const u of unsynced) {
-      try {
-        // Resolve Real Employee ID
-        const realEmployeeId = employeeMap.get(String(u.employee_id))
-
-        if (!realEmployeeId) {
-          // Mark as error immediately - employee not found
-          results.push({
-            ok: false,
-            error: `No Employee found in ERP with Attendance Device ID '${u.employee_id}'`,
-            isEmployeeError: true,
-          })
-          continue
-        }
-
-        // Format timestamp to YYYY-MM-DD HH:mm:ss (Local Time)
-        // Stored timestamp is ISO (UTC). We need to send "Device Wall Clock" time to Frappe.
-        // Assuming the PC running this app is in the same timezone as the Device and the ERP Server.
-        const dateObj = new Date(u.timestamp)
-
-        // Get local components
-        const year = dateObj.getFullYear()
-        const month = String(dateObj.getMonth() + 1).padStart(2, '0')
-        const day = String(dateObj.getDate()).padStart(2, '0')
-        const hours = String(dateObj.getHours()).padStart(2, '0')
-        const minutes = String(dateObj.getMinutes()).padStart(2, '0')
-        const seconds = String(dateObj.getSeconds()).padStart(2, '0')
-
-        const formattedTime = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`
-
-        const device = Database.getDeviceById(u.device_id)
-
-        const payload = {
-          employee: realEmployeeId,
-          time: formattedTime,
-          log_type: u.status, // "IN" or "OUT"
-          device_id: String(u.device_id),
-          latitude: device?.latitude != null ? Number(device.latitude) : 0.0001,
-          longitude: device?.longitude != null ? Number(device.longitude) : 0.0001,
-        }
-
-        await frappeRequest('Employee Checkin', 'POST', payload)
-        results.push({ ok: true })
-      } catch (e: any) {
-        const errorMsg = e?.message || 'Unknown error'
-        console.error(`Main: Failed to sync record ${u.id}:`, errorMsg)
-
-        // Detect duplicate: "already has a log with the same timestamp" or HTTP 417
-        const isDuplicate =
-          errorMsg.toLowerCase().includes('already has a log') ||
-          errorMsg.toLowerCase().includes('same timestamp') ||
-          errorMsg.toLowerCase().includes('duplicate') ||
-          errorMsg.includes('417')
-
-        // Detect employee error
-        const isEmployeeError =
-          errorMsg.toLowerCase().includes('employee') &&
-          (errorMsg.toLowerCase().includes('not found') ||
-            errorMsg.toLowerCase().includes('does not exist'))
-
-        results.push({
-          ok: false,
-          error: errorMsg,
-          isDuplicate,
-          isEmployeeError,
-        })
-      }
-    }
-
-    // Categorize results
-    const syncedIds: number[] = []
-    const duplicateIds: number[] = []
-    const errorIds: number[] = []
-
-    results.forEach((r, i) => {
-      const id = unsynced[i].id!
-      if (r.ok) {
-        syncedIds.push(id)
-      } else if (r.isDuplicate) {
-        duplicateIds.push(id)
-        console.log(`Main: Record ${id} marked as duplicate`)
-      } else if (r.isEmployeeError) {
-        errorIds.push(id)
-        console.log(`Main: Record ${id} marked as error (employee not found)`)
-      }
-      // Other errors remain pending for retry
-    })
-
-    // Mark in database
-    Database.markSynced(syncedIds)
-    Database.markDuplicate(duplicateIds)
-    Database.markError(errorIds)
-
-    console.log(
-      `Main: Sync complete. Synced: ${syncedIds.length}, Duplicates: ${duplicateIds.length}, Errors: ${errorIds.length}`,
-    )
-
-    return {
-      synced: syncedIds.length,
-      errors: results
-        .filter((r) => !r.ok && !r.isDuplicate)
-        .map((r) => r.error as string),
-      syncedIds,
-      duplicateIds,
-      errorIds,
+      console.error('Main: Sync run error:', e)
+      return { synced: 0, errors: [e?.message || 'Unknown sync error'] }
     }
   })
 
@@ -1064,8 +914,8 @@ app.whenReady().then(async () => {
       return
     }
 
-    // 5. Get unsynced logs
-    const logs = Database.getUnsynced(100, creds.baseUrl)
+    // 5. Get unsynced logs (process up to 500 per auto-sync cycle)
+    const logs = Database.getUnsynced(500, creds.baseUrl)
     if (logs.length === 0) {
       return
     }

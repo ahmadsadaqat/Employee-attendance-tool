@@ -5,11 +5,14 @@
  * This module handles syncing attendance logs to the Frappe API.
  * Phase 12: Frappe is now the SOLE sync destination. Supabase removed.
  * Phase 15: Sends device LOCATION instead of numeric device_id.
+ * Phase 17: Optimized with batch processing and concurrent requests.
  *
  * BEHAVIOR:
  * - Logs are pushed to Frappe and marked synced on success
  * - Failed logs remain unsynced for retry
  * - Returns list of successfully synced IDs for marking
+ * - Uses concurrent requests (up to 5 in parallel) for speed
+ * - Removes per-log duplicate pre-check (server handles duplicates via error codes)
  */
 
 import { net } from 'electron'
@@ -45,70 +48,6 @@ export interface FrappeSyncResult {
  */
 export function getFrappeBaseUrl(fallbackUrl?: string): string | null {
   return process.env.FRAPPE_BASE_URL || fallbackUrl || null
-}
-
-/**
- * Check if an Employee Checkin already exists in Frappe for the given employee and timestamp
- * Returns true if a matching checkin exists, false otherwise
- */
-async function checkExistingCheckin(
-  employeeId: string, // Actual Employee ID like "HR-EMP-00001"
-  timestamp: string, // Formatted as "YYYY-MM-DD HH:MM:SS"
-  baseUrl: string,
-  headers: Record<string, string>,
-): Promise<boolean> {
-  try {
-    // Query Employee Checkin with employee AND time filters
-    const filters = JSON.stringify([
-      ['employee', '=', employeeId],
-      ['time', '=', timestamp],
-    ])
-    const params = new URLSearchParams({
-      filters,
-      limit_page_length: '1',
-    })
-
-    const url = `${baseUrl.replace(/\/$/, '')}/api/resource/Employee Checkin?${params.toString()}`
-    console.log(
-      `Frappe Sync: Checking for existing checkin: employee=${employeeId}, time=${timestamp}`,
-    )
-
-    const response = await new Promise<{ status: number; body: string }>(
-      (resolve, reject) => {
-        const request = net.request({ method: 'GET', url })
-        for (const [key, value] of Object.entries(headers)) {
-          request.setHeader(key, value)
-        }
-
-        let responseBody = ''
-        request.on('response', (response) => {
-          response.on('data', (chunk) => {
-            responseBody += chunk.toString()
-          })
-          response.on('end', () => {
-            resolve({ status: response.statusCode, body: responseBody })
-          })
-          response.on('error', (error) => reject(error))
-        })
-        request.on('error', (error) => reject(error))
-        request.end()
-      },
-    )
-
-    if (response.status >= 200 && response.status < 300) {
-      const json = JSON.parse(response.body)
-      const data = json.data || []
-      if (data.length > 0) {
-        console.log(
-          `Frappe Sync: Found existing checkin for ${employeeId} at ${timestamp}`,
-        )
-        return true
-      }
-    }
-  } catch (e) {
-    console.warn(`Frappe Sync: Failed to check existing checkin: ${e}`)
-  }
-  return false // Assume not duplicate if check fails
 }
 
 /**
@@ -172,15 +111,111 @@ async function fetchEmployeeMapping(
 }
 
 /**
+ * Send a single log to Frappe and return the result.
+ * Used internally by the concurrent processor.
+ */
+function pushSingleLog(
+  url: string,
+  headers: Record<string, string>,
+  payload: any,
+): Promise<{ status: number; body: string }> {
+  return new Promise((resolve, reject) => {
+    const request = net.request({ method: 'POST', url })
+
+    for (const [key, value] of Object.entries(headers)) {
+      request.setHeader(key, value)
+    }
+
+    let responseBody = ''
+
+    request.on('response', (response) => {
+      response.on('data', (chunk) => {
+        responseBody += chunk.toString()
+      })
+
+      request.on('error', (error) => {
+        reject(error)
+      })
+
+      response.on('end', () => {
+        resolve({
+          status: response.statusCode,
+          body: responseBody,
+        })
+      })
+
+      response.on('error', (error) => {
+        reject(error)
+      })
+    })
+
+    request.on('error', (error) => {
+      reject(error)
+    })
+
+    request.write(JSON.stringify(payload))
+    request.end()
+  })
+}
+
+/**
+ * Classify a Frappe error response into a category
+ */
+function classifyError(
+  statusCode: number,
+  body: string,
+): { errorMsg: string; isDuplicate: boolean; isEmployeeNotFound: boolean } {
+  let errorMsg = `HTTP ${statusCode}`
+  let isDuplicate = false
+  let isEmployeeNotFound = false
+
+  try {
+    const json = JSON.parse(body)
+    if (json.exception) {
+      errorMsg += `: ${json.exception}`
+      if (errorMsg.includes("'NoneType' object has no attribute 'start_time'")) {
+        errorMsg = "Missing Shift Assignment for Employee. Please assign a shift in Frappe HR/ERPNext."
+      }
+    } else if (json._server_messages) {
+      const msgs = JSON.parse(json._server_messages)
+      const joined = msgs
+        .map((m: any) => JSON.parse(m).message)
+        .join(', ')
+      if (joined) errorMsg += `: ${joined}`
+    } else if (json.message) {
+      errorMsg += `: ${json.message}`
+    }
+
+    if (
+      errorMsg.toLowerCase().includes('already has a log') ||
+      errorMsg.toLowerCase().includes('same timestamp') ||
+      errorMsg.toLowerCase().includes('duplicate')
+    ) {
+      isDuplicate = true
+    }
+
+    if (
+      errorMsg.toLowerCase().includes('employee') &&
+      (errorMsg.toLowerCase().includes('not found') ||
+        errorMsg.toLowerCase().includes('does not exist'))
+    ) {
+      isEmployeeNotFound = true
+    }
+  } catch {
+    if (body) errorMsg += `: ${body.slice(0, 200)}`
+  }
+
+  return { errorMsg, isDuplicate, isEmployeeNotFound }
+}
+
+/**
  * Push attendance logs to Frappe API
  *
- * This calls the existing Frappe endpoint:
- *   /api/method/attendance_bridge.api.attendance.push_logs
- *
- * The function:
- * - Logs request start, payload count (no PII), response, and errors
- * - Does NOT throw on failure (returns result object instead)
- * - Returns syncedIds for caller to mark logs as synced
+ * Optimized sync:
+ * - Processes up to 5 logs concurrently for speed
+ * - Removed per-log duplicate pre-check (let server reject duplicates)
+ * - Device lookup is cached per device_id
+ * - Employee mapping is fetched once at start
  */
 export async function syncLogsToFrappe(
   logs: AttendanceLog[],
@@ -202,8 +237,7 @@ export async function syncLogsToFrappe(
     return result
   }
 
-  console.log('Frappe Sync: Starting push...')
-  console.log(`Frappe Sync: Processing ${logs.length} logs individually`)
+  console.log(`Frappe Sync: Starting push of ${logs.length} logs...`)
 
   // Build headers with authentication
   const headers: Record<string, string> = {
@@ -219,191 +253,121 @@ export async function syncLogsToFrappe(
 
   const url = `${baseUrl.replace(/\/$/, '')}/api/method/attendance_bridge.api.attendance.push_logs`
 
-  // Fetch employee mapping (biometric ID -> Employee ID) from Frappe
+  // Fetch employee mapping once (biometric ID -> Employee ID)
   const employeeMap = await fetchEmployeeMapping(baseUrl, headers)
 
-  // Process each log individually
+  // Cache device lookups to avoid repeated DB hits
+  const deviceCache = new Map<number, ReturnType<typeof Database.getDeviceById>>()
+  const getDevice = (deviceId: number) => {
+    if (!deviceCache.has(deviceId)) {
+      deviceCache.set(deviceId, Database.getDeviceById(deviceId))
+    }
+    return deviceCache.get(deviceId)
+  }
+
+  // Pre-filter logs: separate valid from invalid (no employee mapping)
+  const validLogs: { log: AttendanceLog; employeeId: string }[] = []
   for (const log of logs) {
     if (log.id === undefined) continue
 
-    try {
-      // Look up device to get location for the custom field
-      const device = Database.getDeviceById(log.device_id)
-      const deviceLocation = device?.location || ''
-
-      // Map biometric ID to actual Employee ID
-      const actualEmployeeId = employeeMap.get(String(log.employee_id))
-      if (!actualEmployeeId) {
-        // Employee not found - mark as error
-        result.errorIds.push(log.id)
-        result.errors.push(
-          `Log ${log.id}: No Employee found with attendance_device_id '${log.employee_id}'`,
-        )
-        console.log(
-          `Frappe Sync: Log ${log.id} error - no employee with biometric ID '${log.employee_id}'`,
-        )
-        continue
-      }
-
-      // Format timestamp to MySQL-compatible format (YYYY-MM-DD HH:MM:SS) in LOCAL time
-      // Using local components to avoid UTC conversion issues (4:00 AM PKT != 23:00 UTC)
-      let formattedTimestamp = log.timestamp
-      if (log.timestamp) {
-        const date = new Date(log.timestamp)
-        if (!isNaN(date.getTime())) {
-          // Use local time components, not UTC
-          const year = date.getFullYear()
-          const month = String(date.getMonth() + 1).padStart(2, '0')
-          const day = String(date.getDate()).padStart(2, '0')
-          const hours = String(date.getHours()).padStart(2, '0')
-          const minutes = String(date.getMinutes()).padStart(2, '0')
-          const seconds = String(date.getSeconds()).padStart(2, '0')
-          formattedTimestamp = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`
-        }
-      }
-
-      // Pre-check: Query Frappe to see if this checkin already exists
-      const existingCheck = await checkExistingCheckin(
-        actualEmployeeId,
-        formattedTimestamp,
-        baseUrl,
-        headers,
+    const actualEmployeeId = employeeMap.get(String(log.employee_id))
+    if (!actualEmployeeId) {
+      result.errorIds.push(log.id)
+      result.errors.push(
+        `Log ${log.id}: No Employee found with attendance_device_id '${log.employee_id}'`,
       )
-      if (existingCheck) {
-        // Already exists in ERP - mark as duplicate without pushing
-        result.duplicateIds.push(log.id)
-        console.log(
-          `Frappe Sync: Log ${log.id} already exists in ERP (pre-check), marking as duplicate`,
-        )
-        continue
-      }
+      continue
+    }
 
-      const payload = {
-        logs: [
-          {
-            local_id: log.id,
-            employee_id: actualEmployeeId, // Use mapped Employee ID, not biometric ID
-            timestamp: formattedTimestamp,
-            log_type: log.status,
-            device_id: String(log.device_id),
-            device_location: deviceLocation,
-            // Re-added because Geo Fencing is mandatory in the user's Frappe hr settings.
-            // Sending the actual configured device coordinates as strings.
-            latitude: device?.latitude != null ? Number(device.latitude) : 0.0001,
-            longitude: device?.longitude != null ? Number(device.longitude) : 0.0001,
-          },
-        ],
-      }
+    validLogs.push({ log, employeeId: actualEmployeeId })
+  }
 
-      // Use Electron's net module for consistent behavior with session
-      const response = await new Promise<{ status: number; body: string }>(
-        (resolve, reject) => {
-          const request = net.request({
-            method: 'POST',
-            url,
-          })
+  if (validLogs.length === 0) {
+    console.log('Frappe Sync: No valid logs to push (all had mapping errors)')
+    result.success = result.errorIds.length > 0 // Mark success if we at least categorized errors
+    return result
+  }
 
-          for (const [key, value] of Object.entries(headers)) {
-            request.setHeader(key, value)
+  console.log(`Frappe Sync: Pushing ${validLogs.length} valid logs (${result.errorIds.length} skipped due to missing employee)`)
+
+  // Process logs in concurrent batches of 5
+  const CONCURRENCY = 5
+
+  for (let i = 0; i < validLogs.length; i += CONCURRENCY) {
+    const batch = validLogs.slice(i, i + CONCURRENCY)
+
+    const promises = batch.map(async ({ log, employeeId }) => {
+      const logId = log.id!
+
+      try {
+        const device = getDevice(log.device_id)
+        const deviceLocation = device?.location || ''
+
+        // Format timestamp to MySQL-compatible format (YYYY-MM-DD HH:MM:SS) in LOCAL time
+        let formattedTimestamp = log.timestamp
+        if (log.timestamp) {
+          const date = new Date(log.timestamp)
+          if (!isNaN(date.getTime())) {
+            const year = date.getFullYear()
+            const month = String(date.getMonth() + 1).padStart(2, '0')
+            const day = String(date.getDate()).padStart(2, '0')
+            const hours = String(date.getHours()).padStart(2, '0')
+            const minutes = String(date.getMinutes()).padStart(2, '0')
+            const seconds = String(date.getSeconds()).padStart(2, '0')
+            formattedTimestamp = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`
           }
-
-          let responseBody = ''
-
-          request.on('response', (response) => {
-            response.on('data', (chunk) => {
-              responseBody += chunk.toString()
-            })
-
-            response.on('end', () => {
-              resolve({
-                status: response.statusCode,
-                body: responseBody,
-              })
-            })
-
-            response.on('error', (error) => {
-              reject(error)
-            })
-          })
-
-          request.on('error', (error) => {
-            reject(error)
-          })
-
-          request.write(JSON.stringify(payload))
-          request.end()
-        },
-      )
-
-      // Parse response for this individual log
-      if (response.status >= 200 && response.status < 300) {
-        // Success - mark as synced
-        result.syncedIds.push(log.id)
-        result.pushed++
-        console.log(`Frappe Sync: Log ${log.id} synced successfully`)
-      } else {
-        // Error - categorize based on response
-        let errorMsg = `HTTP ${response.status}`
-        let isDuplicate = false
-        let isEmployeeNotFound = false
-
-        try {
-          const json = JSON.parse(response.body)
-          if (json.exception) {
-            errorMsg += `: ${json.exception}`
-            // Translate the common missing shift error
-            if (errorMsg.includes("'NoneType' object has no attribute 'start_time'")) {
-              errorMsg = "Missing Shift Assignment for Employee. Please assign a shift in Frappe HR/ERPNext."
-            }
-          } else if (json._server_messages) {
-            const msgs = JSON.parse(json._server_messages)
-            const joined = msgs
-              .map((m: any) => JSON.parse(m).message)
-              .join(', ')
-            if (joined) errorMsg += `: ${joined}`
-          } else if (json.message) {
-            errorMsg += `: ${json.message}`
-          }
-
-          // Detect duplicate pattern
-          if (
-            errorMsg.toLowerCase().includes('already has a log') ||
-            errorMsg.toLowerCase().includes('same timestamp') ||
-            errorMsg.toLowerCase().includes('duplicate')
-          ) {
-            isDuplicate = true
-          }
-
-          // Detect employee not found pattern
-          if (
-            errorMsg.toLowerCase().includes('employee') &&
-            (errorMsg.toLowerCase().includes('not found') ||
-              errorMsg.toLowerCase().includes('does not exist'))
-          ) {
-            isEmployeeNotFound = true
-          }
-        } catch {
-          if (response.body) errorMsg += `: ${response.body.slice(0, 200)}`
         }
 
-        if (isDuplicate) {
-          result.duplicateIds.push(log.id)
-          console.log(`Frappe Sync: Log ${log.id} is duplicate`)
-        } else if (isEmployeeNotFound) {
-          result.errorIds.push(log.id)
-          result.errors.push(`Log ${log.id}: ${errorMsg}`)
-          console.log(`Frappe Sync: Log ${log.id} error - employee not found`)
+        const payload = {
+          logs: [
+            {
+              local_id: logId,
+              employee_id: employeeId,
+              timestamp: formattedTimestamp,
+              log_type: log.status,
+              device_id: String(log.device_id),
+              device_location: deviceLocation,
+              latitude: device?.latitude != null ? Number(device.latitude) : 0.0001,
+              longitude: device?.longitude != null ? Number(device.longitude) : 0.0001,
+            },
+          ],
+        }
+
+        const response = await pushSingleLog(url, headers, payload)
+
+        if (response.status >= 200 && response.status < 300) {
+          result.syncedIds.push(logId)
+          result.pushed++
         } else {
-          // Other error - don't add to any list, will remain as pending for retry
-          result.errors.push(`Log ${log.id}: ${errorMsg}`)
-          console.warn(`Frappe Sync: Log ${log.id} failed - ${errorMsg}`)
+          const { errorMsg, isDuplicate, isEmployeeNotFound } = classifyError(
+            response.status,
+            response.body,
+          )
+
+          if (isDuplicate) {
+            result.duplicateIds.push(logId)
+          } else if (isEmployeeNotFound) {
+            result.errorIds.push(logId)
+            result.errors.push(`Log ${logId}: ${errorMsg}`)
+          } else {
+            // Other error - remain pending for retry
+            result.errors.push(`Log ${logId}: ${errorMsg}`)
+            console.warn(`Frappe Sync: Log ${logId} failed - ${errorMsg}`)
+          }
         }
+      } catch (error: any) {
+        const errorMsg = error?.message || error?.toString() || 'Unknown error'
+        result.errors.push(`Log ${logId}: ${errorMsg}`)
+        console.error(`Frappe Sync: Log ${logId} exception - ${errorMsg}`)
       }
-    } catch (error: any) {
-      const errorMsg = error?.message || error?.toString() || 'Unknown error'
-      result.errors.push(`Log ${log.id}: ${errorMsg}`)
-      console.error(`Frappe Sync: Log ${log.id} exception - ${errorMsg}`)
-      // Don't add to any list - will remain pending for retry
+    })
+
+    await Promise.all(promises)
+
+    // Log progress every batch
+    const processed = Math.min(i + CONCURRENCY, validLogs.length)
+    if (processed % 25 === 0 || processed === validLogs.length) {
+      console.log(`Frappe Sync: Progress ${processed}/${validLogs.length} (synced: ${result.syncedIds.length}, dup: ${result.duplicateIds.length})`)
     }
   }
 
