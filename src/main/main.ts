@@ -698,13 +698,15 @@ app.whenReady().then(async () => {
 
         const formattedTime = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`
 
+        const device = Database.getDeviceById(u.device_id)
+
         const payload = {
           employee: realEmployeeId,
           time: formattedTime,
           log_type: u.status, // "IN" or "OUT"
           device_id: String(u.device_id),
-          latitude: '0.000000',
-          longitude: '0.000000',
+          latitude: device?.latitude != null ? String(device.latitude) : '0.0001',
+          longitude: device?.longitude != null ? String(device.longitude) : '0.0001',
         }
 
         await frappeRequest('Employee Checkin', 'POST', payload)
