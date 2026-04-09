@@ -322,7 +322,7 @@ export async function syncLogsToFrappe(
           logs: [
             {
               local_id: logId,
-              employee_id: employeeId,
+              employee_id: String(log.employee_id), // Send biometric ID to match Frappe attendance_bridge logic
               timestamp: formattedTimestamp,
               log_type: log.status,
               device_id: String(log.device_id),
@@ -336,8 +336,35 @@ export async function syncLogsToFrappe(
         const response = await pushSingleLog(url, headers, payload)
 
         if (response.status >= 200 && response.status < 300) {
-          result.syncedIds.push(logId)
-          result.pushed++
+          try {
+            const resultJson = JSON.parse(response.body)
+            
+            // Handle successful HTTP 200 responses that contain logical errors from attendance.py
+            if (resultJson.error_ids && resultJson.error_ids.includes(logId)) {
+              // Extract specific error for this log if available
+              const errorMsgs = resultJson.errors && Array.isArray(resultJson.errors) 
+                ? resultJson.errors.filter((e: string) => e.includes(`log ${logId}`))
+                : []
+              const errorMsg = errorMsgs.length > 0 ? errorMsgs[0] : (resultJson.errors ? resultJson.errors.join(', ') : 'Unknown backend error')
+              
+              result.errorIds.push(logId)
+              result.errors.push(`Log ${logId}: ${errorMsg}`)
+              console.warn(`Frappe Sync: Log ${logId} rejected by backend - ${errorMsg}`)
+            } else if (resultJson.duplicate_ids && resultJson.duplicate_ids.includes(logId)) {
+              result.duplicateIds.push(logId)
+            } else if (resultJson.synced_ids && resultJson.synced_ids.includes(logId)) {
+              result.syncedIds.push(logId)
+              result.pushed++
+            } else {
+              // Backward compatibility if API response format happens to lack explicitly populated lists
+              result.syncedIds.push(logId)
+              result.pushed++
+            }
+          } catch (e) {
+            // Non-JSON response but HTTP 200/2XX
+            result.syncedIds.push(logId)
+            result.pushed++
+          }
         } else {
           const { errorMsg, isDuplicate, isEmployeeNotFound } = classifyError(
             response.status,
