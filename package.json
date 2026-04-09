@@ -1,6 +1,6 @@
 {
   "name": "nexo-employees",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "private": true,
   "description": "Electron app to sync ZKTeco attendance with ERPNext (offline-first)",
   "main": "dist-electron/main.cjs",

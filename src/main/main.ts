@@ -8,6 +8,7 @@ import {
   Tray,
   Menu,
   nativeImage,
+  dialog,
 } from 'electron'
 import path from 'node:path'
 import Store from 'electron-store'
@@ -249,11 +250,122 @@ app.whenReady().then(async () => {
   const initialCreds = await getCredentials()
   await Database.init(dataPath, initialCreds?.baseUrl)
 
+  let isManualUpdateCheck = false
+
+  // Configure App Menu
+  const isMac = process.platform === 'darwin'
+  const template: Electron.MenuItemConstructorOptions[] = [
+    {
+      label: 'File',
+      submenu: [isMac ? { role: 'close' } : { role: 'quit' }],
+    },
+    {
+      label: 'Edit',
+      submenu: [
+        { role: 'undo' },
+        { role: 'redo' },
+        { type: 'separator' },
+        { role: 'cut' },
+        { role: 'copy' },
+        { role: 'paste' },
+      ],
+    },
+    {
+      label: 'View',
+      submenu: [
+        { role: 'reload' },
+        { role: 'forceReload' },
+        { role: 'toggleDevTools' },
+        { type: 'separator' },
+        { role: 'resetZoom' },
+        { role: 'zoomIn' },
+        { role: 'zoomOut' },
+        { type: 'separator' },
+        { role: 'togglefullscreen' },
+      ],
+    },
+    {
+      role: 'help',
+      submenu: [
+        {
+          label: 'Check for Updates',
+          click: () => {
+            if (!process.env.VITE_DEV_SERVER) {
+              isManualUpdateCheck = true
+              autoUpdater.checkForUpdatesAndNotify()
+            } else {
+              dialog.showMessageBox({
+                type: 'info',
+                title: 'Development Mode',
+                message: 'Update checks are disabled in development mode.',
+              })
+            }
+          },
+        },
+        { type: 'separator' },
+        {
+          label: `Version ${app.getVersion()}`,
+          enabled: false,
+        },
+      ],
+    },
+  ]
+  const menu = Menu.buildFromTemplate(template)
+  Menu.setApplicationMenu(menu)
+
   createWindow()
   createTray()
   
   if (!process.env.VITE_DEV_SERVER) {
+    // Check for updates on startup
     autoUpdater.checkForUpdatesAndNotify()
+
+    autoUpdater.on('update-available', () => {
+      if (isManualUpdateCheck) {
+        dialog.showMessageBox({
+          type: 'info',
+          title: 'Update Found',
+          message: 'A new update was found and is downloading in the background. We will notify you when it is ready.',
+        })
+        isManualUpdateCheck = false
+      }
+    })
+
+    autoUpdater.on('update-not-available', () => {
+      if (isManualUpdateCheck) {
+        dialog.showMessageBox({
+          type: 'info',
+          title: 'Up to Date',
+          message: `You are running the latest version (${app.getVersion()}).`,
+        })
+        isManualUpdateCheck = false
+      }
+    })
+
+    autoUpdater.on('error', (err) => {
+      if (isManualUpdateCheck) {
+        dialog.showErrorBox('Update Check Failed', err == null ? 'unknown' : (err.stack || err).toString())
+        isManualUpdateCheck = false
+      }
+    })
+
+    // Add explicit dialog prompt when update is completely downloaded
+    autoUpdater.on('update-downloaded', (info) => {
+      dialog
+        .showMessageBox({
+          type: 'info',
+          title: 'Update Available',
+          message: `Version ${info.version} is ready to be installed.`,
+          detail: 'Would you like to install it now? The application will restart.',
+          buttons: ['Install Now', 'Later'],
+          defaultId: 0,
+        })
+        .then((result) => {
+          if (result.response === 0) {
+            autoUpdater.quitAndInstall()
+          }
+        })
+    })
   }
 
   console.log('Main process: Window created, IPC handlers registered')
