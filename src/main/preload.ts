@@ -8,9 +8,27 @@ contextBridge.exposeInMainWorld('api', {
     name: string,
     ip: string,
     port: number,
-    opts?: { location?: string; commKey?: string; useUdp?: boolean; latitude?: number; longitude?: number },
+    opts?: {
+      location?: string
+      commKey?: string
+      useUdp?: boolean
+      latitude?: number
+      longitude?: number
+    },
   ) => ipcRenderer.invoke('device:add', { name, ip, port, ...(opts || {}) }),
   listDevices: () => ipcRenderer.invoke('device:list'),
+  updateDeviceLocation: (
+    id: number,
+    location: string,
+    latitude: number,
+    longitude: number,
+  ) =>
+    ipcRenderer.invoke('device:update-location', {
+      id,
+      location,
+      latitude,
+      longitude,
+    }),
   removeDevice: (id: number) => ipcRenderer.invoke('device:remove', id),
   fetchLogs: (
     ip: string,

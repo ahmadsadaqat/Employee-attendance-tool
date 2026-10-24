@@ -153,8 +153,6 @@ export async function registerDevice(
     ip_address: device.ip,
     port: device.port,
     location: device.location || '', // Send location to Frappe
-    latitude: device.latitude ?? null,
-    longitude: device.longitude ?? null,
   }
 
   console.log('Frappe Device: Payload:', JSON.stringify(payload, null, 2))

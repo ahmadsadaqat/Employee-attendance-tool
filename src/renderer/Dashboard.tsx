@@ -478,24 +478,53 @@ export default function Dashboard({
         device.name,
         device.ipAddress,
         Number(device.port),
-        { 
+        {
           location: device.location,
           latitude: device.latitude ? Number(device.latitude) : undefined,
           longitude: device.longitude ? Number(device.longitude) : undefined,
-        }
+        },
       )
       addNotification(
         `New device '${device.name}' added successfully`,
         'SUCCESS',
         'Device Manager',
       )
-      loadDevices()
+      await loadDevices()
     } catch (e: any) {
       addNotification(
         `Failed to add device: ${e.message}`,
         'CRITICAL',
         'Device Manager',
       )
+      throw e
+    }
+  }
+
+  const handleUpdateDeviceLocation = async (device: Device) => {
+    try {
+      const latitude = Number(device.latitude)
+      const longitude = Number(device.longitude)
+      const result = await (window as any).api?.updateDeviceLocation?.(
+        Number(device.id),
+        device.location,
+        latitude,
+        longitude,
+      )
+      if (!result?.ok) throw new Error('The device location was not saved')
+
+      await loadDevices()
+      addNotification(
+        `Updated ERP coordinates for '${device.name}'`,
+        'SUCCESS',
+        'Device Manager',
+      )
+    } catch (e: any) {
+      addNotification(
+        `Location update failed: ${e.message}`,
+        'CRITICAL',
+        'Device Manager',
+      )
+      throw e
     }
   }
 
@@ -733,6 +762,7 @@ export default function Dashboard({
           <DeviceManager
             devices={devices}
             onAddDevice={handleAddDevice}
+            onUpdateDeviceLocation={handleUpdateDeviceLocation}
             onDeleteDevice={handleDeleteDevice}
             onConnectDevice={handleConnectDevice}
           />

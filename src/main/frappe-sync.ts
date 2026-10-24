@@ -21,6 +21,7 @@ import {
   classifyEmployeeCheckinVerification,
   classifySuccessfulFrappeResponse,
 } from './frappe-response'
+import { validateDeviceCoordinates } from './device-location'
 
 export interface FrappeAuthConfig {
   sid?: string
@@ -376,6 +377,16 @@ export async function syncLogsToFrappe(
         const registeredDeviceId = device
           ? `${device.ip}:${device.port}`
           : String(log.device_id)
+        const coordinates = validateDeviceCoordinates(
+          device?.latitude,
+          device?.longitude,
+        )
+        if (!coordinates.ok) {
+          result.errorIds.push(logId)
+          result.errorDetails[String(logId)] = coordinates.message
+          result.errors.push(`Log ${logId}: ${coordinates.message}`)
+          return
+        }
 
         // Format timestamp to MySQL-compatible format (YYYY-MM-DD HH:MM:SS) in LOCAL time
         let formattedTimestamp = log.timestamp
@@ -401,8 +412,8 @@ export async function syncLogsToFrappe(
               log_type: log.status,
               device_id: registeredDeviceId,
               device_location: deviceLocation,
-              latitude: device?.latitude != null ? Number(device.latitude) : 0.0001,
-              longitude: device?.longitude != null ? Number(device.longitude) : 0.0001,
+              latitude: coordinates.latitude,
+              longitude: coordinates.longitude,
             },
           ],
         }

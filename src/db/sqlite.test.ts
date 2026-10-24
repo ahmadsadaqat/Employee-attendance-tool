@@ -181,4 +181,23 @@ describe('Offline SQLite Database Integration', () => {
       Database.getUnsyncedByIds([selected.id], 'http://other-erp.com'),
     ).toEqual([])
   })
+
+  it('updates device coordinates without deleting its attendance logs', () => {
+    const device = Database.listDevices('http://test-erp.com')[0]
+    const attendanceBefore = Database.listAttendanceByDevice(device.id!, 100)
+
+    Database.updateDevice(device.id!, {
+      location: 'Main Office',
+      latitude: 0.001,
+      longitude: 0.001,
+    })
+
+    const updated = Database.getDeviceById(device.id!)
+    expect(updated?.location).toBe('Main Office')
+    expect(updated?.latitude).toBe(0.001)
+    expect(updated?.longitude).toBe(0.001)
+    expect(Database.listAttendanceByDevice(device.id!, 100)).toHaveLength(
+      attendanceBefore.length,
+    )
+  })
 })

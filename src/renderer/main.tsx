@@ -552,8 +552,20 @@ declare global {
         name: string,
         ip: string,
         port: number,
-        opts?: { commKey?: string; useUdp?: boolean },
+        opts?: {
+          location?: string
+          commKey?: string
+          useUdp?: boolean
+          latitude?: number
+          longitude?: number
+        },
       ) => Promise<{ id: number }>
+      updateDeviceLocation: (
+        id: number,
+        location: string,
+        latitude: number,
+        longitude: number,
+      ) => Promise<{ ok: true }>
       removeDevice: (id: number) => Promise<void>
       runSync: (ids?: number[]) => Promise<{
         synced: number

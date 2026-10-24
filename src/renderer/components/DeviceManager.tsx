@@ -10,11 +10,14 @@ import {
   Monitor,
   Fingerprint,
   CreditCard,
+  Pencil,
+  MapPinned,
 } from 'lucide-react'
 
 interface DeviceManagerProps {
   devices: Device[]
-  onAddDevice: (device: Device) => void
+  onAddDevice: (device: Device) => Promise<void>
+  onUpdateDeviceLocation: (device: Device) => Promise<void>
   onDeleteDevice: (id: string) => void
   onConnectDevice: (device: Device) => Promise<void>
 }
@@ -22,11 +25,14 @@ interface DeviceManagerProps {
 export const DeviceManager: React.FC<DeviceManagerProps> = ({
   devices,
   onAddDevice,
+  onUpdateDeviceLocation,
   onDeleteDevice,
   onConnectDevice,
 }) => {
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [connectingId, setConnectingId] = useState<string | null>(null)
+  const [editingDeviceId, setEditingDeviceId] = useState<string | null>(null)
+  const [isSaving, setIsSaving] = useState(false)
   const [newDevice, setNewDevice] = useState<Partial<Device>>({
     name: '',
     location: '',
@@ -46,10 +52,47 @@ export const DeviceManager: React.FC<DeviceManagerProps> = ({
     }
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const resetDeviceForm = () => {
+    setNewDevice({
+      name: '',
+      location: '',
+      type: 'BIOMETRIC',
+      ipAddress: '192.168.1.X',
+      port: '4370',
+      latitude: '',
+      longitude: '',
+    })
+    setEditingDeviceId(null)
+  }
+
+  const openAddModal = () => {
+    resetDeviceForm()
+    setIsModalOpen(true)
+  }
+
+  const openLocationEditor = (device: Device) => {
+    setEditingDeviceId(device.id)
+    setNewDevice({ ...device })
+    setIsModalOpen(true)
+  }
+
+  const closeModal = () => {
+    if (isSaving) return
+    setIsModalOpen(false)
+    resetDeviceForm()
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (newDevice.name && newDevice.location) {
-      onAddDevice({
+    if (
+      newDevice.name &&
+      newDevice.location &&
+      newDevice.latitude !== '' &&
+      newDevice.latitude !== undefined &&
+      newDevice.longitude !== '' &&
+      newDevice.longitude !== undefined
+    ) {
+      const device: Device = {
         id: Date.now().toString(),
         name: newDevice.name,
         location: newDevice.location,
@@ -60,17 +103,25 @@ export const DeviceManager: React.FC<DeviceManagerProps> = ({
         port: newDevice.port || '4370',
         latitude: newDevice.latitude,
         longitude: newDevice.longitude,
-      })
-      setIsModalOpen(false)
-      setNewDevice({
-        name: '',
-        location: '',
-        type: 'BIOMETRIC',
-        ipAddress: '192.168.1.X',
-        port: '4370',
-        latitude: '',
-        longitude: '',
-      })
+      }
+
+      setIsSaving(true)
+      try {
+        if (editingDeviceId) {
+          await onUpdateDeviceLocation({
+            ...device,
+            id: editingDeviceId,
+          })
+        } else {
+          await onAddDevice(device)
+        }
+        setIsModalOpen(false)
+        resetDeviceForm()
+      } catch {
+        // Dashboard reports the detailed failure as an in-app notification.
+      } finally {
+        setIsSaving(false)
+      }
     }
   }
 
@@ -100,7 +151,7 @@ export const DeviceManager: React.FC<DeviceManagerProps> = ({
         </div>
         <div className='flex'>
           <button
-            onClick={() => setIsModalOpen(true)}
+            onClick={openAddModal}
             className='flex items-center gap-2 bg-teal-600 text-white px-4 py-2 rounded-lg hover:bg-teal-700 transition-colors shadow-sm'
           >
             <Plus size={18} />
@@ -130,6 +181,13 @@ export const DeviceManager: React.FC<DeviceManagerProps> = ({
                 </div>
                 <div className='flex gap-2'>
                   <button
+                    onClick={() => openLocationEditor(device)}
+                    className='text-slate-400 dark:text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors p-1'
+                    title='Edit ERP Location Coordinates'
+                  >
+                    <Pencil size={18} />
+                  </button>
+                  <button
                     onClick={() => handleConnect(device)}
                     disabled={connectingId === device.id}
                     className='text-slate-400 dark:text-slate-500 hover:text-teal-600 dark:hover:text-teal-400 transition-colors p-1 disabled:opacity-50'
@@ -158,6 +216,21 @@ export const DeviceManager: React.FC<DeviceManagerProps> = ({
               <p className='text-sm text-slate-500 dark:text-slate-400 mb-4'>
                 {device.location}
               </p>
+
+              <div
+                className={`mb-4 flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium border ${
+                  device.latitude !== undefined &&
+                  device.longitude !== undefined
+                    ? 'bg-indigo-50 text-indigo-700 border-indigo-100 dark:bg-indigo-900/30 dark:text-indigo-300 dark:border-indigo-800'
+                    : 'bg-red-50 text-red-700 border-red-100 dark:bg-red-900/30 dark:text-red-300 dark:border-red-800'
+                }`}
+              >
+                <MapPinned size={15} />
+                {device.latitude !== undefined &&
+                device.longitude !== undefined
+                  ? `${device.latitude}, ${device.longitude}`
+                  : 'ERP coordinates not configured'}
+              </div>
 
               <div
                 className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium border ${
@@ -206,13 +279,19 @@ export const DeviceManager: React.FC<DeviceManagerProps> = ({
         ))}
       </div>
 
-      {/* Add Modal */}
+      {/* Add/Edit Location Modal */}
       {isModalOpen && (
         <div className='fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4'>
           <div className='bg-white dark:bg-slate-800 rounded-xl shadow-xl max-w-md w-full p-6 border dark:border-slate-700'>
             <h3 className='text-lg font-bold text-slate-800 dark:text-slate-100 mb-4'>
-              Add New Device
+              {editingDeviceId ? 'Edit ERP Location' : 'Add New Device'}
             </h3>
+            {editingDeviceId && (
+              <p className='mb-4 text-sm text-slate-500 dark:text-slate-400'>
+                Enter the same coordinates configured on this device&apos;s ERP
+                Shift Location.
+              </p>
+            )}
             <form onSubmit={handleSubmit} className='space-y-4'>
               <div>
                 <label className='block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1'>
@@ -220,12 +299,13 @@ export const DeviceManager: React.FC<DeviceManagerProps> = ({
                 </label>
                 <input
                   required
+                  disabled={Boolean(editingDeviceId)}
                   type='text'
                   value={newDevice.name}
                   onChange={(e) =>
                     setNewDevice({ ...newDevice, name: e.target.value })
                   }
-                  className='w-full px-3 py-2 border border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded-lg focus:ring-2 focus:ring-teal-500 outline-none'
+                  className='w-full px-3 py-2 border border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded-lg focus:ring-2 focus:ring-teal-500 outline-none disabled:opacity-60 disabled:cursor-not-allowed'
                   placeholder='e.g. Lobby Turnstile 1'
                 />
               </div>
@@ -250,6 +330,7 @@ export const DeviceManager: React.FC<DeviceManagerProps> = ({
                     Type
                   </label>
                   <select
+                    disabled={Boolean(editingDeviceId)}
                     value={newDevice.type}
                     onChange={(e) =>
                       setNewDevice({
@@ -257,7 +338,7 @@ export const DeviceManager: React.FC<DeviceManagerProps> = ({
                         type: e.target.value as any,
                       })
                     }
-                    className='w-full px-3 py-2 border border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded-lg focus:ring-2 focus:ring-teal-500 outline-none'
+                    className='w-full px-3 py-2 border border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded-lg focus:ring-2 focus:ring-teal-500 outline-none disabled:opacity-60 disabled:cursor-not-allowed'
                   >
                     <option value='BIOMETRIC'>Biometric</option>
                     <option value='RFID'>RFID</option>
@@ -269,12 +350,13 @@ export const DeviceManager: React.FC<DeviceManagerProps> = ({
                     Port
                   </label>
                   <input
+                    disabled={Boolean(editingDeviceId)}
                     type='text'
                     value={newDevice.port}
                     onChange={(e) =>
                       setNewDevice({ ...newDevice, port: e.target.value })
                     }
-                    className='w-full px-3 py-2 border border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded-lg focus:ring-2 focus:ring-teal-500 outline-none'
+                    className='w-full px-3 py-2 border border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded-lg focus:ring-2 focus:ring-teal-500 outline-none disabled:opacity-60 disabled:cursor-not-allowed'
                     placeholder='4370'
                   />
                 </div>
@@ -284,21 +366,25 @@ export const DeviceManager: React.FC<DeviceManagerProps> = ({
                   IP Address
                 </label>
                 <input
+                  disabled={Boolean(editingDeviceId)}
                   type='text'
                   value={newDevice.ipAddress}
                   onChange={(e) =>
                     setNewDevice({ ...newDevice, ipAddress: e.target.value })
                   }
-                  className='w-full px-3 py-2 border border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded-lg focus:ring-2 focus:ring-teal-500 outline-none'
+                  className='w-full px-3 py-2 border border-slate-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white rounded-lg focus:ring-2 focus:ring-teal-500 outline-none disabled:opacity-60 disabled:cursor-not-allowed'
                 />
               </div>
               <div className='grid grid-cols-2 gap-4 mt-4'>
                 <div>
                   <label className='block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1'>
-                    Latitude (Optional)
+                    Latitude
                   </label>
                   <input
                     type='number'
+                    required
+                    min='-90'
+                    max='90'
                     step='any'
                     value={newDevice.latitude || ''}
                     onChange={(e) =>
@@ -310,10 +396,13 @@ export const DeviceManager: React.FC<DeviceManagerProps> = ({
                 </div>
                 <div>
                   <label className='block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1'>
-                    Longitude (Optional)
+                    Longitude
                   </label>
                   <input
                     type='number'
+                    required
+                    min='-180'
+                    max='180'
                     step='any'
                     value={newDevice.longitude || ''}
                     onChange={(e) =>
@@ -327,16 +416,22 @@ export const DeviceManager: React.FC<DeviceManagerProps> = ({
               <div className='flex justify-end gap-3 mt-6'>
                 <button
                   type='button'
-                  onClick={() => setIsModalOpen(false)}
+                  onClick={closeModal}
+                  disabled={isSaving}
                   className='px-4 py-2 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg transition-colors'
                 >
                   Cancel
                 </button>
                 <button
                   type='submit'
-                  className='px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors font-medium'
+                  disabled={isSaving}
+                  className='px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors font-medium disabled:opacity-60 disabled:cursor-not-allowed'
                 >
-                  Add Device
+                  {isSaving
+                    ? 'Saving...'
+                    : editingDeviceId
+                      ? 'Save Location'
+                      : 'Add Device'}
                 </button>
               </div>
             </form>

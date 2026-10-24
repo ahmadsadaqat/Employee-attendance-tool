@@ -25,6 +25,7 @@ import {
   disableDevice,
   mapFrappeToLocal,
 } from './frappe-device'
+import { validateDeviceCoordinates } from './device-location'
 
 // -------------------- GLOBAL SAFETY & CONFIG --------------------
 
@@ -465,6 +466,8 @@ app.whenReady().then(async () => {
       },
     ) => {
       const creds = await getCredentials()
+      const coordinates = validateDeviceCoordinates(d.latitude, d.longitude)
+      if (!coordinates.ok) throw new Error(coordinates.message)
 
       // Try to register with Frappe first (source of truth)
       if (creds?.baseUrl && creds?.auth) {
@@ -476,8 +479,8 @@ app.whenReady().then(async () => {
             location: d.location, // Pass location to Frappe
             comm_key: d.commKey,
             use_udp: d.useUdp ? 1 : 0,
-            latitude: d.latitude ?? null,
-            longitude: d.longitude ?? null,
+            latitude: coordinates.latitude,
+            longitude: coordinates.longitude,
           },
           creds.baseUrl,
           creds.auth,
@@ -500,10 +503,46 @@ app.whenReady().then(async () => {
         d.useUdp ? 1 : 0,
         creds?.baseUrl,
         undefined, // preferredId
-        d.latitude ?? null,
-        d.longitude ?? null,
+        coordinates.latitude,
+        coordinates.longitude,
       )
       return { id }
+    },
+  )
+
+  ipcMain.handle(
+    'device:update-location',
+    async (
+      _e,
+      {
+        id,
+        location,
+        latitude,
+        longitude,
+      }: {
+        id: number
+        location: string
+        latitude: number
+        longitude: number
+      },
+    ) => {
+      if (!Number.isInteger(id) || id <= 0 || !Database.getDeviceById(id)) {
+        throw new Error('The selected device could not be found.')
+      }
+
+      const normalizedLocation = String(location || '').trim()
+      if (!normalizedLocation) throw new Error('Device location is required.')
+
+      const coordinates = validateDeviceCoordinates(latitude, longitude)
+      if (!coordinates.ok) throw new Error(coordinates.message)
+
+      Database.updateDevice(id, {
+        location: normalizedLocation,
+        latitude: coordinates.latitude,
+        longitude: coordinates.longitude,
+      })
+
+      return { ok: true }
     },
   )
 
