@@ -13,8 +13,8 @@
   "license": "MIT",
   "scripts": {
     "dev": "concurrently -k \"node scripts/build-electron.mjs --watch\" \"vite\" \"wait-on tcp:5173 && cross-env VITE_DEV_SERVER=true electron .\"",
-    "build": "node scripts/build-electron.mjs && vite build && electron-builder",
-    "build:win": "node scripts/build-electron.mjs && vite build && electron-builder --win",
+    "build": "node scripts/build-electron.mjs && vite build && electron-builder --publish never",
+    "build:win": "node scripts/build-electron.mjs && vite build && electron-builder --win --publish never",
     "release:win": "node scripts/build-electron.mjs && vite build && electron-builder --win --publish always",
     "build:app": "vite build",
     "lint": "echo 'no linter configured'",
