@@ -751,7 +751,7 @@ app.whenReady().then(async () => {
   )
 
   // Sync Logic — delegates to optimized syncLogsToFrappe with concurrency
-  ipcMain.handle('sync:run', async () => {
+  ipcMain.handle('sync:run', async (_e, requestedIds?: number[]) => {
     console.log('Main: Starting Sync Run...')
 
     const creds = await getCredentials()
@@ -765,8 +765,20 @@ app.whenReady().then(async () => {
       return { synced: 0, errors: ['No Frappe base URL configured'] }
     }
 
-    // Fetch up to 500 unsynced logs per manual sync run
-    const unsynced = Database.getUnsynced(500, creds.baseUrl)
+    const selectedIds = Array.isArray(requestedIds)
+      ? Array.from(
+          new Set(
+            requestedIds.filter(
+              (id) => Number.isInteger(id) && Number(id) > 0,
+            ),
+          ),
+        )
+      : null
+
+    // A selected retry only sends those rows. A normal sync sends up to 500.
+    const unsynced = selectedIds
+      ? Database.getUnsyncedByIds(selectedIds, creds.baseUrl)
+      : Database.getUnsynced(500, creds.baseUrl)
     console.log(
       `Main: Found ${unsynced.length} unsynced records for ${creds.baseUrl}`,
     )

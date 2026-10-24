@@ -339,12 +339,12 @@ export default function Dashboard({
     setAlerts((prev) => [newAlert, ...prev])
   }
 
-  const syncToERP = async (silent = false) => {
+  const syncToERP = async (silent = false, selectedIds?: number[]) => {
     try {
       if (!silent)
         addNotification('Syncing with ERP system...', 'INFO', 'ERP Integration')
 
-      const result = await (window as any).api?.runSync?.()
+      const result = await (window as any).api?.runSync?.(selectedIds)
 
       if (result?.synced > 0) {
         addNotification(
@@ -559,6 +559,30 @@ export default function Dashboard({
     }
   }
 
+  const handleRetryLogs = async (ids: string[]) => {
+    const numericIds = ids
+      .map((id) => Number(id))
+      .filter((id) => Number.isInteger(id) && id > 0)
+
+    if (!numericIds.length) {
+      throw new Error('No valid local logs were selected')
+    }
+
+    const resetResult = await (window as any).api?.resetSyncStatus?.(numericIds)
+    if (!resetResult?.ok) {
+      throw new Error('The selected logs could not be prepared for retry')
+    }
+
+    setCheckIns((previous) =>
+      previous.map((log) =>
+        numericIds.some((id) => String(id) === log.id)
+          ? { ...log, syncStatus: 0 as const, syncError: null }
+          : log,
+      ),
+    )
+    await syncToERP(false, numericIds)
+  }
+
   // Handle import with date range from ImportLogsModal
   const handleImportWithDateRange = async (params: {
     deviceId: string
@@ -721,6 +745,7 @@ export default function Dashboard({
             onImport={() => handleForceFetchDevices({ silent: false })}
             onSync={handleForcePushToERP}
             onDeleteLogs={handleDeleteLogs}
+            onRetryLogs={handleRetryLogs}
             onImportWithDateRange={handleImportWithDateRange}
             devices={devices.map((d) => ({
               id: d.id,

@@ -4,6 +4,10 @@ export type LogSyncDisposition =
   | { status: 'error'; message: string }
   | { status: 'unknown'; message: string }
 
+export type CheckinVerification =
+  | { found: true; name: string | null }
+  | { found: false; message: string }
+
 function hasId(value: unknown, logId: number): boolean {
   return (
     Array.isArray(value) &&
@@ -92,5 +96,48 @@ export function classifySuccessfulFrappeResponse(
     status: 'unknown',
     message:
       'ERPNext did not explicitly confirm this check-in. It remains pending for retry.',
+  }
+}
+
+/**
+ * Confirm that a resource-list response contains the Employee Checkin that was
+ * just created. A successful POST acknowledgement alone is not enough to mark
+ * a local row as synced.
+ */
+export function classifyEmployeeCheckinVerification(
+  responseBody: string,
+): CheckinVerification {
+  let parsed: any
+  try {
+    parsed = JSON.parse(responseBody)
+  } catch {
+    return {
+      found: false,
+      message: 'ERPNext returned a non-JSON response while verifying the check-in.',
+    }
+  }
+
+  if (!Array.isArray(parsed?.data)) {
+    return {
+      found: false,
+      message: 'ERPNext returned an unexpected response while verifying the check-in.',
+    }
+  }
+
+  const record = parsed.data[0]
+  if (record && typeof record === 'object') {
+    return {
+      found: true,
+      name:
+        typeof record.name === 'string' && record.name.trim()
+          ? record.name.trim()
+          : null,
+    }
+  }
+
+  return {
+    found: false,
+    message:
+      'ERPNext acknowledged the upload, but the Employee Checkin could not be found afterward.',
   }
 }

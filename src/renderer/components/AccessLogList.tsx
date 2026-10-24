@@ -15,6 +15,7 @@ import {
   Search,
   Calendar,
   Trash2,
+  RotateCcw,
 } from 'lucide-react'
 import { ImportLogsModal } from './ImportLogsModal'
 import { isWithinLocalDateRange, toLocalDateOnly } from '../utils/date'
@@ -33,6 +34,7 @@ interface AccessLogListProps {
   onImport: () => void
   onSync: () => void
   onDeleteLogs: (ids: string[]) => Promise<void>
+  onRetryLogs: (ids: string[]) => Promise<void>
   onImportWithDateRange?: (params: {
     deviceId: string
     deviceIp: string
@@ -51,6 +53,7 @@ export const AccessLogList: React.FC<AccessLogListProps> = ({
   onImport,
   onSync,
   onDeleteLogs,
+  onRetryLogs,
   onImportWithDateRange,
   devices = [],
 }) => {
@@ -63,6 +66,7 @@ export const AccessLogList: React.FC<AccessLogListProps> = ({
   const [endDate, setEndDate] = useState('')
   const [selectedLogIds, setSelectedLogIds] = useState<Set<string>>(new Set())
   const [isDeleting, setIsDeleting] = useState(false)
+  const [isRetrying, setIsRetrying] = useState(false)
 
   const handleFileClick = () => {
     fileInputRef.current?.click()
@@ -236,6 +240,24 @@ export const AccessLogList: React.FC<AccessLogListProps> = ({
     }
   }
 
+  const handleRetrySelected = async () => {
+    const ids = Array.from(selectedLogIds)
+    if (!ids.length) return
+
+    const confirmed = window.confirm(
+      `Retry ${ids.length} selected access log${ids.length === 1 ? '' : 's'}? The app will only show Synced after confirming the Employee Checkin exists in ERPNext.`,
+    )
+    if (!confirmed) return
+
+    setIsRetrying(true)
+    try {
+      await onRetryLogs(ids)
+      setSelectedLogIds(new Set())
+    } finally {
+      setIsRetrying(false)
+    }
+  }
+
   const startRange = count === 0 ? 0 : page * rowsPerPage + 1
   const endRange = Math.min((page + 1) * rowsPerPage, count)
 
@@ -280,8 +302,21 @@ export const AccessLogList: React.FC<AccessLogListProps> = ({
 
           {selectedLogIds.size > 0 && (
             <button
+              onClick={handleRetrySelected}
+              disabled={isRetrying || isDeleting}
+              className='flex items-center gap-2 px-4 py-2 bg-amber-500 text-white rounded-lg text-sm font-medium hover:bg-amber-600 transition-colors shadow-sm disabled:opacity-60 disabled:cursor-not-allowed'
+            >
+              <RotateCcw size={16} className={isRetrying ? 'animate-spin' : ''} />
+              {isRetrying
+                ? 'Retrying...'
+                : `Retry Selected (${selectedLogIds.size})`}
+            </button>
+          )}
+
+          {selectedLogIds.size > 0 && (
+            <button
               onClick={handleDeleteSelected}
-              disabled={isDeleting}
+              disabled={isDeleting || isRetrying}
               className='flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 transition-colors shadow-sm disabled:opacity-60 disabled:cursor-not-allowed'
             >
               <Trash2 size={16} />

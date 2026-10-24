@@ -46,7 +46,7 @@ contextBridge.exposeInMainWorld('api', {
       startDate,
       endDate,
     }),
-  runSync: () => ipcRenderer.invoke('sync:run'),
+  runSync: (ids?: number[]) => ipcRenderer.invoke('sync:run', ids),
   setCredentials: (baseUrl: string, auth: any) =>
     ipcRenderer.invoke('credentials:set', { baseUrl, auth }),
   getCredentials: () => ipcRenderer.invoke('credentials:get'),

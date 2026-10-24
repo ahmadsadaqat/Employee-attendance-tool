@@ -495,6 +495,37 @@ export class Database {
       .all(limit) as any
   }
 
+  static getUnsyncedByIds(ids: number[], instanceUrl?: string) {
+    const validIds = Array.from(
+      new Set(ids.filter((id) => Number.isInteger(id) && id > 0)),
+    )
+    if (!validIds.length) return []
+
+    const placeholders = validIds.map(() => '?').join(', ')
+    if (instanceUrl) {
+      return this.db
+        .prepare(
+          `
+            SELECT a.* FROM attendance a
+            JOIN devices d ON a.device_id = d.id
+            WHERE a.synced=0
+              AND d.instance_url = ?
+              AND a.id IN (${placeholders})
+            ORDER BY a.timestamp ASC
+          `,
+        )
+        .all(instanceUrl, ...validIds) as Attendance[] & { id: number }[]
+    }
+
+    return this.db
+      .prepare(
+        `SELECT * FROM attendance
+         WHERE synced=0 AND id IN (${placeholders})
+         ORDER BY timestamp ASC`,
+      )
+      .all(...validIds) as Attendance[] & { id: number }[]
+  }
+
   static getStats(instanceUrl?: string) {
     if (instanceUrl) {
       const total = this.db

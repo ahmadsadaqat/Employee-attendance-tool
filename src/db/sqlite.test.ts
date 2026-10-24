@@ -152,4 +152,33 @@ describe('Offline SQLite Database Integration', () => {
     expect(reset?.synced).toBe(0)
     expect(reset?.sync_error).toBeNull()
   })
+
+  it('returns only the selected pending logs for a targeted retry', () => {
+    const deviceId = Database.listDevices()[0].id!
+    const selected = Database.insertAttendance({
+      device_id: deviceId,
+      employee_id: 'selected-retry',
+      timestamp: '2026-10-24T07:43:18Z',
+      status: 'OUT',
+      synced: 0,
+    })
+    const notSelected = Database.insertAttendance({
+      device_id: deviceId,
+      employee_id: 'other-pending',
+      timestamp: '2026-10-24T07:47:38Z',
+      status: 'OUT',
+      synced: 0,
+    })
+
+    const selectedLogs = Database.getUnsyncedByIds(
+      [selected.id],
+      'http://test-erp.com',
+    )
+
+    expect(selectedLogs.map((log) => log.id)).toEqual([selected.id])
+    expect(selectedLogs.some((log) => log.id === notSelected.id)).toBe(false)
+    expect(
+      Database.getUnsyncedByIds([selected.id], 'http://other-erp.com'),
+    ).toEqual([])
+  })
 })

@@ -529,6 +529,9 @@ declare global {
       markAttendanceSynced: (
         ids: number[],
       ) => Promise<{ ok: true; updated: number }>
+      resetSyncStatus: (
+        ids: number[],
+      ) => Promise<{ ok: true; updated: number }>
       deleteAttendance: (
         ids: number[],
       ) => Promise<{ ok: true; deleted: number }>
@@ -552,7 +555,7 @@ declare global {
         opts?: { commKey?: string; useUdp?: boolean },
       ) => Promise<{ id: number }>
       removeDevice: (id: number) => Promise<void>
-      runSync: () => Promise<{
+      runSync: (ids?: number[]) => Promise<{
         synced: number
         errors: string[]
         syncedIds?: Array<number | string>

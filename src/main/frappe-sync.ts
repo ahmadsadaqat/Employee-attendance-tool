@@ -17,7 +17,10 @@
 
 import { net } from 'electron'
 import { Database } from '../db/sqlite'
-import { classifySuccessfulFrappeResponse } from './frappe-response'
+import {
+  classifyEmployeeCheckinVerification,
+  classifySuccessfulFrappeResponse,
+} from './frappe-response'
 
 export interface FrappeAuthConfig {
   sid?: string
@@ -160,6 +163,71 @@ function pushSingleLog(
   })
 }
 
+function fetchFrappeResource(
+  url: string,
+  headers: Record<string, string>,
+): Promise<{ status: number; body: string }> {
+  return new Promise((resolve, reject) => {
+    const request = net.request({ method: 'GET', url })
+
+    for (const [key, value] of Object.entries(headers)) {
+      request.setHeader(key, value)
+    }
+
+    let responseBody = ''
+    request.on('response', (response) => {
+      response.on('data', (chunk) => {
+        responseBody += chunk.toString()
+      })
+      response.on('end', () => {
+        resolve({ status: response.statusCode, body: responseBody })
+      })
+      response.on('error', reject)
+    })
+    request.on('error', reject)
+    request.end()
+  })
+}
+
+const wait = (milliseconds: number) =>
+  new Promise<void>((resolve) => setTimeout(resolve, milliseconds))
+
+async function verifyEmployeeCheckin(
+  baseUrl: string,
+  headers: Record<string, string>,
+  employeeId: string,
+  timestamp: string,
+): Promise<{ found: boolean; message?: string }> {
+  const params = new URLSearchParams({
+    fields: JSON.stringify(['name']),
+    filters: JSON.stringify([
+      ['employee', '=', employeeId],
+      ['time', '=', timestamp],
+    ]),
+    limit_page_length: '1',
+  })
+  const url = `${baseUrl.replace(/\/$/, '')}/api/resource/Employee%20Checkin?${params.toString()}`
+
+  let lastMessage =
+    'ERPNext acknowledged the upload, but the Employee Checkin could not be found afterward.'
+
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const response = await fetchFrappeResource(url, headers)
+    if (response.status < 200 || response.status >= 300) {
+      lastMessage = `ERPNext verification failed with HTTP ${response.status}.`
+      break
+    }
+
+    const verification = classifyEmployeeCheckinVerification(response.body)
+    if (verification.found) return { found: true }
+    lastMessage = verification.message
+
+    if (attempt < 3) await wait(300)
+  }
+
+  return { found: false, message: lastMessage }
+}
+
 /**
  * Classify a Frappe error response into a category
  */
@@ -299,7 +367,7 @@ export async function syncLogsToFrappe(
   for (let i = 0; i < validLogs.length; i += CONCURRENCY) {
     const batch = validLogs.slice(i, i + CONCURRENCY)
 
-    const promises = batch.map(async ({ log }) => {
+    const promises = batch.map(async ({ log, employeeId }) => {
       const logId = log.id!
 
       try {
@@ -348,8 +416,27 @@ export async function syncLogsToFrappe(
           )
 
           if (disposition.status === 'synced') {
-            result.syncedIds.push(logId)
-            result.pushed++
+            const verification = await verifyEmployeeCheckin(
+              baseUrl,
+              headers,
+              employeeId,
+              formattedTimestamp,
+            )
+
+            if (verification.found) {
+              result.syncedIds.push(logId)
+              result.pushed++
+            } else {
+              const message =
+                verification.message ||
+                'ERPNext did not retain the Employee Checkin after upload.'
+              result.errorIds.push(logId)
+              result.errorDetails[String(logId)] = message
+              result.errors.push(`Log ${logId}: ${message}`)
+              console.warn(
+                `Frappe Sync: Log ${logId} failed read-back verification - ${message}`,
+              )
+            }
           } else if (disposition.status === 'duplicate') {
             result.duplicateIds.push(logId)
           } else if (disposition.status === 'error') {
