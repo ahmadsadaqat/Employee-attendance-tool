@@ -22,6 +22,12 @@ import {
   classifySuccessfulFrappeResponse,
 } from './frappe-response'
 import { validateDeviceCoordinates } from './device-location'
+import {
+  chunkBiometricIds,
+  normalizeBiometricId,
+  parseEmployeeMappingResponse,
+  uniqueBiometricIds,
+} from './frappe-employee-mapping'
 
 export interface FrappeAuthConfig {
   sid?: string
@@ -62,56 +68,36 @@ export function getFrappeBaseUrl(fallbackUrl?: string): string | null {
 async function fetchEmployeeMapping(
   baseUrl: string,
   headers: Record<string, string>,
+  biometricIds: string[],
 ): Promise<Map<string, string>> {
   const employeeMap = new Map<string, string>()
+  const requestedIds = uniqueBiometricIds(biometricIds)
 
-  try {
+  for (const idChunk of chunkBiometricIds(requestedIds)) {
     const params = new URLSearchParams({
       fields: JSON.stringify(['name', 'attendance_device_id']),
-      limit_page_length: '1000',
+      filters: JSON.stringify([
+        ['attendance_device_id', 'in', idChunk],
+      ]),
+      limit_page_length: String(idChunk.length),
+      order_by: 'name asc',
     })
 
     const url = `${baseUrl.replace(/\/$/, '')}/api/resource/Employee?${params.toString()}`
 
-    const response = await new Promise<{ status: number; body: string }>(
-      (resolve, reject) => {
-        const request = net.request({ method: 'GET', url })
-        for (const [key, value] of Object.entries(headers)) {
-          request.setHeader(key, value)
-        }
-
-        let responseBody = ''
-        request.on('response', (response) => {
-          response.on('data', (chunk) => {
-            responseBody += chunk.toString()
-          })
-          response.on('end', () => {
-            resolve({ status: response.statusCode, body: responseBody })
-          })
-          response.on('error', (error) => reject(error))
-        })
-        request.on('error', (error) => reject(error))
-        request.end()
-      },
+    const response = await fetchFrappeResource(url, headers)
+    const chunkMapping = parseEmployeeMappingResponse(
+      response.status,
+      response.body,
     )
-
-    if (response.status >= 200 && response.status < 300) {
-      const json = JSON.parse(response.body)
-      const employees = json.data || []
-
-      for (const emp of employees) {
-        if (emp.attendance_device_id) {
-          // Map: "5" -> "HR-EMP-00001"
-          employeeMap.set(String(emp.attendance_device_id), emp.name)
-        }
-      }
-      console.log(
-        `Frappe Sync: Mapped ${employeeMap.size} employees with biometric IDs`,
-      )
+    for (const [biometricId, employeeId] of chunkMapping) {
+      employeeMap.set(biometricId, employeeId)
     }
-  } catch (e) {
-    console.warn(`Frappe Sync: Failed to fetch employee mapping: ${e}`)
   }
+
+  console.log(
+    `Frappe Sync: Mapped ${employeeMap.size}/${requestedIds.length} requested biometric IDs`,
+  )
 
   return employeeMap
 }
@@ -325,8 +311,23 @@ export async function syncLogsToFrappe(
 
   const url = `${baseUrl.replace(/\/$/, '')}/api/method/attendance_bridge.api.attendance.push_logs`
 
-  // Fetch employee mapping once (biometric ID -> Employee ID)
-  const employeeMap = await fetchEmployeeMapping(baseUrl, headers)
+  // Fetch only the employees referenced by this sync run. The previous broad
+  // 1,000-row request could miss valid employees on larger ERP installations.
+  let employeeMap: Map<string, string>
+  try {
+    employeeMap = await fetchEmployeeMapping(
+      baseUrl,
+      headers,
+      logs.map((log) => log.employee_id),
+    )
+  } catch (error: any) {
+    const message =
+      error?.message ||
+      'Could not load employee mappings from ERPNext. The logs were not sent.'
+    result.errors.push(message)
+    console.warn(`Frappe Sync: ${message}`)
+    return result
+  }
 
   // Cache device lookups to avoid repeated DB hits
   const deviceCache = new Map<number, ReturnType<typeof Database.getDeviceById>>()
@@ -342,7 +343,9 @@ export async function syncLogsToFrappe(
   for (const log of logs) {
     if (log.id === undefined) continue
 
-    const actualEmployeeId = employeeMap.get(String(log.employee_id))
+    const actualEmployeeId = employeeMap.get(
+      normalizeBiometricId(log.employee_id),
+    )
     if (!actualEmployeeId) {
       const errorMessage = `No Employee found with attendance_device_id '${log.employee_id}'`
       result.errorIds.push(log.id)
