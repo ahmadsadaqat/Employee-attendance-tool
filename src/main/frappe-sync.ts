@@ -17,6 +17,7 @@
 
 import { net } from 'electron'
 import { Database } from '../db/sqlite'
+import { classifySuccessfulFrappeResponse } from './frappe-response'
 
 export interface FrappeAuthConfig {
   sid?: string
@@ -41,6 +42,7 @@ export interface FrappeSyncResult {
   syncedIds: number[] // IDs of logs successfully synced
   duplicateIds: number[] // IDs of logs that were duplicates
   errorIds: number[] // IDs of logs that had errors (e.g., employee not found)
+  errorDetails: Record<string, string> // Local log ID -> backend error
 }
 
 /**
@@ -229,6 +231,7 @@ export async function syncLogsToFrappe(
     syncedIds: [],
     duplicateIds: [],
     errorIds: [],
+    errorDetails: {},
   }
 
   if (!logs.length) {
@@ -272,10 +275,10 @@ export async function syncLogsToFrappe(
 
     const actualEmployeeId = employeeMap.get(String(log.employee_id))
     if (!actualEmployeeId) {
+      const errorMessage = `No Employee found with attendance_device_id '${log.employee_id}'`
       result.errorIds.push(log.id)
-      result.errors.push(
-        `Log ${log.id}: No Employee found with attendance_device_id '${log.employee_id}'`,
-      )
+      result.errorDetails[String(log.id)] = errorMessage
+      result.errors.push(`Log ${log.id}: ${errorMessage}`)
       continue
     }
 
@@ -284,7 +287,7 @@ export async function syncLogsToFrappe(
 
   if (validLogs.length === 0) {
     console.log('Frappe Sync: No valid logs to push (all had mapping errors)')
-    result.success = result.errorIds.length > 0 // Mark success if we at least categorized errors
+    result.success = false
     return result
   }
 
@@ -296,12 +299,15 @@ export async function syncLogsToFrappe(
   for (let i = 0; i < validLogs.length; i += CONCURRENCY) {
     const batch = validLogs.slice(i, i + CONCURRENCY)
 
-    const promises = batch.map(async ({ log, employeeId }) => {
+    const promises = batch.map(async ({ log }) => {
       const logId = log.id!
 
       try {
         const device = getDevice(log.device_id)
         const deviceLocation = device?.location || ''
+        const registeredDeviceId = device
+          ? `${device.ip}:${device.port}`
+          : String(log.device_id)
 
         // Format timestamp to MySQL-compatible format (YYYY-MM-DD HH:MM:SS) in LOCAL time
         let formattedTimestamp = log.timestamp
@@ -325,7 +331,7 @@ export async function syncLogsToFrappe(
               employee_id: String(log.employee_id), // Send biometric ID to match Frappe attendance_bridge logic
               timestamp: formattedTimestamp,
               log_type: log.status,
-              device_id: String(log.device_id),
+              device_id: registeredDeviceId,
               device_location: deviceLocation,
               latitude: device?.latitude != null ? Number(device.latitude) : 0.0001,
               longitude: device?.longitude != null ? Number(device.longitude) : 0.0001,
@@ -336,34 +342,29 @@ export async function syncLogsToFrappe(
         const response = await pushSingleLog(url, headers, payload)
 
         if (response.status >= 200 && response.status < 300) {
-          try {
-            const resultJson = JSON.parse(response.body)
-            
-            // Handle successful HTTP 200 responses that contain logical errors from attendance.py
-            if (resultJson.error_ids && resultJson.error_ids.includes(logId)) {
-              // Extract specific error for this log if available
-              const errorMsgs = resultJson.errors && Array.isArray(resultJson.errors) 
-                ? resultJson.errors.filter((e: string) => e.includes(`log ${logId}`))
-                : []
-              const errorMsg = errorMsgs.length > 0 ? errorMsgs[0] : (resultJson.errors ? resultJson.errors.join(', ') : 'Unknown backend error')
-              
-              result.errorIds.push(logId)
-              result.errors.push(`Log ${logId}: ${errorMsg}`)
-              console.warn(`Frappe Sync: Log ${logId} rejected by backend - ${errorMsg}`)
-            } else if (resultJson.duplicate_ids && resultJson.duplicate_ids.includes(logId)) {
-              result.duplicateIds.push(logId)
-            } else if (resultJson.synced_ids && resultJson.synced_ids.includes(logId)) {
-              result.syncedIds.push(logId)
-              result.pushed++
-            } else {
-              // Backward compatibility if API response format happens to lack explicitly populated lists
-              result.syncedIds.push(logId)
-              result.pushed++
-            }
-          } catch (e) {
-            // Non-JSON response but HTTP 200/2XX
+          const disposition = classifySuccessfulFrappeResponse(
+            response.body,
+            logId,
+          )
+
+          if (disposition.status === 'synced') {
             result.syncedIds.push(logId)
             result.pushed++
+          } else if (disposition.status === 'duplicate') {
+            result.duplicateIds.push(logId)
+          } else if (disposition.status === 'error') {
+            result.errorIds.push(logId)
+            result.errorDetails[String(logId)] = disposition.message
+            result.errors.push(`Log ${logId}: ${disposition.message}`)
+            console.warn(
+              `Frappe Sync: Log ${logId} rejected by backend - ${disposition.message}`,
+            )
+          } else {
+            // An ambiguous response stays pending so it can be retried safely.
+            result.errors.push(`Log ${logId}: ${disposition.message}`)
+            console.warn(
+              `Frappe Sync: Log ${logId} received no explicit confirmation - ${disposition.message}`,
+            )
           }
         } else {
           const { errorMsg, isDuplicate, isEmployeeNotFound } = classifyError(
@@ -375,6 +376,7 @@ export async function syncLogsToFrappe(
             result.duplicateIds.push(logId)
           } else if (isEmployeeNotFound) {
             result.errorIds.push(logId)
+            result.errorDetails[String(logId)] = errorMsg
             result.errors.push(`Log ${logId}: ${errorMsg}`)
           } else {
             // Other error - remain pending for retry

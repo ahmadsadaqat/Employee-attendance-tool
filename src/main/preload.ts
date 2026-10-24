@@ -60,6 +60,8 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.send('log', level, ...args),
   cleanupData: (days: number) => ipcRenderer.invoke('data:cleanup', days),
   clearAllLogs: () => ipcRenderer.invoke('data:clear-all'),
+  deleteAttendance: (ids: number[]) =>
+    ipcRenderer.invoke('attendance:delete', ids),
   // Frappe Sync (Phase 12 - sole sync destination)
   getFrappeSyncConfig: () => ipcRenderer.invoke('frappe:get-config'),
   syncToFrappe: () => ipcRenderer.invoke('frappe:sync'),

@@ -251,6 +251,47 @@ app.whenReady().then(async () => {
   await Database.init(dataPath, initialCreds?.baseUrl)
 
   let isManualUpdateCheck = false
+  let downloadedUpdateVersion: string | null = null
+
+  const checkForAppUpdates = async (manual = false) => {
+    if (process.env.VITE_DEV_SERVER) {
+      if (manual) {
+        await dialog.showMessageBox({
+          type: 'info',
+          title: 'Development Mode',
+          message: 'Update checks are disabled in development mode.',
+        })
+      }
+      return
+    }
+
+    if (downloadedUpdateVersion) {
+      if (manual) {
+        const result = await dialog.showMessageBox({
+          type: 'info',
+          title: 'Update Ready',
+          message: `Version ${downloadedUpdateVersion} is ready to install.`,
+          buttons: ['Install Now', 'Later'],
+          defaultId: 0,
+        })
+        if (result.response === 0) autoUpdater.quitAndInstall()
+      }
+      return
+    }
+
+    isManualUpdateCheck = manual
+    try {
+      await autoUpdater.checkForUpdates()
+    } catch (error: any) {
+      if (isManualUpdateCheck) {
+        dialog.showErrorBox(
+          'Update Check Failed',
+          error?.message || String(error),
+        )
+      }
+      isManualUpdateCheck = false
+    }
+  }
 
   // Configure App Menu
   const isMac = process.platform === 'darwin'
@@ -285,21 +326,12 @@ app.whenReady().then(async () => {
       ],
     },
     {
-      role: 'help',
+      label: 'Help',
       submenu: [
         {
           label: 'Check for Updates',
           click: () => {
-            if (!process.env.VITE_DEV_SERVER) {
-              isManualUpdateCheck = true
-              autoUpdater.checkForUpdatesAndNotify()
-            } else {
-              dialog.showMessageBox({
-                type: 'info',
-                title: 'Development Mode',
-                message: 'Update checks are disabled in development mode.',
-              })
-            }
+            void checkForAppUpdates(true)
           },
         },
         { type: 'separator' },
@@ -315,17 +347,19 @@ app.whenReady().then(async () => {
 
   createWindow()
   createTray()
-  
-  if (!process.env.VITE_DEV_SERVER) {
-    // Check for updates on startup
-    autoUpdater.checkForUpdatesAndNotify()
 
-    autoUpdater.on('update-available', () => {
+  if (!process.env.VITE_DEV_SERVER) {
+    autoUpdater.autoDownload = true
+    autoUpdater.autoInstallOnAppQuit = true
+    autoUpdater.allowPrerelease = false
+
+    autoUpdater.on('update-available', (info) => {
+      console.log(`Updater: Version ${info.version} is available`)
       if (isManualUpdateCheck) {
         dialog.showMessageBox({
           type: 'info',
           title: 'Update Found',
-          message: 'A new update was found and is downloading in the background. We will notify you when it is ready.',
+          message: `Version ${info.version} is downloading in the background.`,
         })
         isManualUpdateCheck = false
       }
@@ -343,20 +377,25 @@ app.whenReady().then(async () => {
     })
 
     autoUpdater.on('error', (err) => {
+      console.error('Updater error:', err)
       if (isManualUpdateCheck) {
-        dialog.showErrorBox('Update Check Failed', err == null ? 'unknown' : (err.stack || err).toString())
+        dialog.showErrorBox(
+          'Update Check Failed',
+          err == null ? 'unknown' : (err.stack || err).toString(),
+        )
         isManualUpdateCheck = false
       }
     })
 
-    // Add explicit dialog prompt when update is completely downloaded
     autoUpdater.on('update-downloaded', (info) => {
+      downloadedUpdateVersion = info.version
       dialog
         .showMessageBox({
           type: 'info',
-          title: 'Update Available',
+          title: 'Update Ready',
           message: `Version ${info.version} is ready to be installed.`,
-          detail: 'Would you like to install it now? The application will restart.',
+          detail:
+            'Install now to restart immediately, or choose Later to install automatically when the app closes.',
           buttons: ['Install Now', 'Later'],
           defaultId: 0,
         })
@@ -366,6 +405,14 @@ app.whenReady().then(async () => {
           }
         })
     })
+
+    // Give the renderer time to open, then check every six hours.
+    setTimeout(() => void checkForAppUpdates(false), 10_000)
+    const updateInterval = setInterval(
+      () => void checkForAppUpdates(false),
+      6 * 60 * 60 * 1000,
+    )
+    updateInterval.unref()
   }
 
   console.log('Main process: Window created, IPC handlers registered')
@@ -429,6 +476,8 @@ app.whenReady().then(async () => {
             location: d.location, // Pass location to Frappe
             comm_key: d.commKey,
             use_udp: d.useUdp ? 1 : 0,
+            latitude: d.latitude ?? null,
+            longitude: d.longitude ?? null,
           },
           creds.baseUrl,
           creds.auth,
@@ -473,10 +522,13 @@ app.whenReady().then(async () => {
                 frappeDevice.device_name,
                 frappeDevice.ip_address,
                 frappeDevice.port,
-                (frappeDevice as any).location ?? null, // Location from Frappe
+                frappeDevice.location ?? null,
                 null,
                 0,
                 creds.baseUrl,
+                undefined,
+                frappeDevice.latitude,
+                frappeDevice.longitude,
               )
             }
           }
@@ -676,6 +728,15 @@ app.whenReady().then(async () => {
     return { ok: true, updated: ids?.length || 0 }
   })
 
+  ipcMain.handle('attendance:delete', async (_e, ids: number[]) => {
+    const creds = await getCredentials()
+    const deleted = Database.deleteAttendance(
+      Array.isArray(ids) ? ids : [],
+      creds?.baseUrl,
+    )
+    return { ok: true, deleted }
+  })
+
   ipcMain.handle('attendance:resetSyncStatus', async (_e, ids: number[]) => {
     Database.resetSyncStatus(ids)
     return { ok: true, updated: ids?.length || 0 }
@@ -723,7 +784,7 @@ app.whenReady().then(async () => {
         Database.markDuplicate(result.duplicateIds)
       }
       if (result.errorIds.length > 0) {
-        Database.markError(result.errorIds)
+        Database.markError(result.errorIds, result.errorDetails)
       }
 
       console.log(
@@ -736,6 +797,7 @@ app.whenReady().then(async () => {
         syncedIds: result.syncedIds,
         duplicateIds: result.duplicateIds,
         errorIds: result.errorIds,
+        errorDetails: result.errorDetails,
       }
     } catch (e: any) {
       console.error('Main: Sync run error:', e)
@@ -1054,7 +1116,7 @@ app.whenReady().then(async () => {
       }
 
       if (result.errorIds && result.errorIds.length > 0) {
-        Database.markError(result.errorIds)
+        Database.markError(result.errorIds, result.errorDetails)
         console.log(`AutoSync: Marked ${result.errorIds.length} logs as error.`)
       }
 
@@ -1131,7 +1193,7 @@ app.whenReady().then(async () => {
       }
 
       if (result.errorIds && result.errorIds.length > 0) {
-        Database.markError(result.errorIds)
+        Database.markError(result.errorIds, result.errorDetails)
         console.log(
           `Frappe Sync: Marked ${result.errorIds.length} logs as error`,
         )

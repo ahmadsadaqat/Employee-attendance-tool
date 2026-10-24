@@ -49,6 +49,8 @@ import {
   SystemAlert,
   User,
 } from './types'
+import { findEmployeeForLog } from './utils/employee'
+import { toLocalDateOnly } from './utils/date'
 
 
 
@@ -139,12 +141,20 @@ export default function Dashboard({
         const mappedDevices: Device[] = list.map((d: any) => ({
           id: String(d.id),
           name: d.name,
-          location: 'Unknown', // Backend doesn't store location yet
+          location: d.location || 'Unknown',
           status: 'OFFLINE', // Default status
           lastPing: '-',
           type: 'BIOMETRIC', // Default type
           ipAddress: d.ip,
           port: String(d.port),
+          latitude:
+            d.latitude !== null && d.latitude !== undefined
+              ? String(d.latitude)
+              : undefined,
+          longitude:
+            d.longitude !== null && d.longitude !== undefined
+              ? String(d.longitude)
+              : undefined,
         }))
         setDevices(mappedDevices)
       }
@@ -179,7 +189,13 @@ export default function Dashboard({
 
   // NEW: Fetch Employees to map IDs to Names for local logs
   const { data: employees } = useFrappeDocList('Employee', {
-    fields: ['name', 'employee_name', 'department', 'image'],
+    fields: [
+      'name',
+      'employee_name',
+      'attendance_device_id',
+      'department',
+      'image',
+    ],
     limit: 1000,
   })
 
@@ -198,19 +214,17 @@ export default function Dashboard({
 
   // 2. Process Real Data (Depends on logs & devices)
   useEffect(() => {
-    // Prefer LOCAL logs if available, as they show the immediate state of the device sync
-    // Fallback to Frappe logs if local is empty (e.g. fresh install with no local data yet but cloud data exists)
-    const sourceLogs =
-      localLogs && localLogs.length > 0 ? localLogs : frappeLogs
+    // Local logs are the source of truth after the local query has loaded.
+    // This ensures deleting all local rows leaves the view empty as expected.
+    const sourceLogs = localLogs !== undefined ? localLogs : frappeLogs
 
     if (sourceLogs) {
       // Helper to find employee info
-      const getEmpInfo = (id: string) => {
-        const e = employees?.find(
-          (emp: any) => emp.name === id || emp.employee_name === id,
-        )
+      const getEmpInfo = (id: string, isBiometricId: boolean) => {
+        const e = findEmployeeForLog(employees, id, isBiometricId)
         return {
           name: e?.employee_name || id,
+          employeeId: e?.name || id,
           dept: e?.department || 'N/A',
           avatar: e?.image
             ? (window as any).frappeBaseUrl + e.image
@@ -226,11 +240,13 @@ export default function Dashboard({
         const isLocal = log.synced !== undefined // Local has 'synced' column (0 or 1)
 
         const empId = isLocal ? log.employee_id : log.employee
-        const empInfo = getEmpInfo(empId)
+        const empInfo = getEmpInfo(empId, isLocal)
 
         return {
           id: isLocal ? String(log.id) : log.name,
-          employeeId: empId,
+          isLocal,
+          employeeId: empInfo.employeeId,
+          biometricId: isLocal ? String(empId) : undefined,
           employeeName: empInfo.name,
           department: empInfo.dept,
           timestamp: isLocal ? log.timestamp : log.time,
@@ -246,15 +262,16 @@ export default function Dashboard({
             : 'CHECK_OUT',
           avatar: empInfo.avatar,
           syncStatus: isLocal ? (log.synced as 0 | 1 | 2 | 3 | 4) : 1, // Frappe logs are by definition synced
+          syncError: isLocal ? log.sync_error : null,
         }
       })
 
       setCheckIns(mappedRecords)
 
       // 2. Process for Traffic Chart (Today's data)
-      const today = new Date().toISOString().split('T')[0]
-      const todaysLogs = mappedRecords.filter((r) =>
-        r.timestamp.startsWith(today),
+      const today = toLocalDateOnly(new Date())
+      const todaysLogs = mappedRecords.filter(
+        (r) => toLocalDateOnly(r.timestamp) === today,
       )
 
       // Initialize hours 06:00 to 18:00
@@ -338,29 +355,51 @@ export default function Dashboard({
         // Refresh local view - mark synced, duplicates, and errors
         setCheckIns((prev) =>
           prev.map((c) => {
-            if (result.syncedIds?.includes(c.id))
-              return { ...c, syncStatus: 1 as const }
-            if (result.duplicateIds?.includes(c.id))
-              return { ...c, syncStatus: 2 as const }
-            if (result.errorIds?.includes(c.id))
-              return { ...c, syncStatus: 3 as const }
+            if (
+              result.syncedIds?.some(
+                (id: number | string) => String(id) === c.id,
+              )
+            )
+              return { ...c, syncStatus: 1 as const, syncError: null }
+            if (
+              result.duplicateIds?.some(
+                (id: number | string) => String(id) === c.id,
+              )
+            )
+              return { ...c, syncStatus: 2 as const, syncError: null }
+            if (
+              result.errorIds?.some(
+                (id: number | string) => String(id) === c.id,
+              )
+            )
+              return {
+                ...c,
+                syncStatus: 3 as const,
+                syncError:
+                  result.errorDetails?.[c.id] ||
+                  'ERPNext rejected this check-in.',
+              }
             return c
           }),
         )
-        refetchLogs()
-      } else if (result?.errors?.length > 0) {
+      }
+
+      if (result?.errors?.length > 0) {
         addNotification(
-          `Sync completed with errors: ${result.errors[0]}`,
+          `ERP sync issue: ${result.errors[0]}`,
           'WARNING',
           'ERP Integration',
         )
-      } else if (!silent) {
+      } else if (!result?.synced && !silent) {
         addNotification(
           'All records are already in sync',
           'SUCCESS',
           'ERP Integration',
         )
       }
+
+      await refetchLocalLogs()
+      refetchLogs()
     } catch (e: any) {
       addNotification(
         `Sync failed: ${e.message}`,
@@ -491,6 +530,33 @@ export default function Dashboard({
   // "Import" button logic - Sends to ERP
   const handleForcePushToERP = () => {
     syncToERP()
+  }
+
+  const handleDeleteLogs = async (ids: string[]) => {
+    try {
+      const numericIds = ids
+        .map((id) => Number(id))
+        .filter((id) => Number.isInteger(id) && id > 0)
+      const result = await (window as any).api?.deleteAttendance?.(numericIds)
+
+      if (!result?.ok) {
+        throw new Error('The selected logs could not be deleted')
+      }
+
+      await refetchLocalLogs()
+      addNotification(
+        `Deleted ${result.deleted} selected log${result.deleted === 1 ? '' : 's'}`,
+        'SUCCESS',
+        'Access Logs',
+      )
+    } catch (error: any) {
+      addNotification(
+        `Delete failed: ${error?.message || 'Unknown error'}`,
+        'CRITICAL',
+        'Access Logs',
+      )
+      throw error
+    }
   }
 
   // Handle import with date range from ImportLogsModal
@@ -654,6 +720,7 @@ export default function Dashboard({
             logs={checkIns}
             onImport={() => handleForceFetchDevices({ silent: false })}
             onSync={handleForcePushToERP}
+            onDeleteLogs={handleDeleteLogs}
             onImportWithDateRange={handleImportWithDateRange}
             devices={devices.map((d) => ({
               id: d.id,

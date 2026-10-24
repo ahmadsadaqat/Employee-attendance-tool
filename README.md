@@ -6,6 +6,7 @@ A robust, offline-first Electron and React desktop application designed to bridg
 1. [Overview](#1-overview)
 2. [Prerequisites](#2-prerequisites)
 3. [Development](#3-development)
+4. [OTA Releases](#4-ota-releases)
 
 ---
 
@@ -65,8 +66,31 @@ npm run build
 ```
 
 **Note on Windows Builds:**
-Because this application is developed natively on Linux and utilizes native bindings (`better-sqlite3`), compiling the `.exe` directly on Linux involves heavy cross-compilation restrictions. 
-To completely bypass this, we provide a fully automated **GitHub Action** (`windows-build.yml`). 
-Simply push your code to the `main` branch or trigger it via the Actions tab, and GitHub will natively compile a standalone `.exe` for Windows x64.
+The automated **GitHub Action** (`windows-build.yml`) compiles the Windows
+x64 NSIS installer and its update metadata on a native Windows runner. Pushes
+to `main` create downloadable workflow artifacts.
 
-*The resulting portable Windows executable is highly optimized, weighing in at an incredibly lightweight **~75 MB** footprint!*
+## 4. OTA Releases
+
+Installed production builds check GitHub Releases shortly after startup and
+every six hours. When an update finishes downloading, the user can install it
+immediately or let it install automatically when the application closes.
+
+To publish a production update:
+
+1. Update the version in `package.json` and `package-lock.json`.
+2. Commit and push the release changes.
+3. Tag that commit with the same version and push the tag:
+
+```sh
+git tag v0.1.7
+git push origin main v0.1.7
+```
+
+The tag starts the Windows release workflow. It publishes the installer,
+blockmap, and `latest.yml` to a public GitHub Release. Those three assets must
+remain attached to the release for automatic updates to work.
+
+> The GitHub repository and release assets must be publicly readable by the
+> installed application. Code signing is also recommended before broad
+> distribution to avoid Windows SmartScreen warnings.

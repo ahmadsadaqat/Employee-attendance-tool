@@ -1,4 +1,4 @@
-import React, { useRef, useState, useMemo } from 'react'
+import React, { useEffect, useRef, useState, useMemo } from 'react'
 import { CheckInRecord } from '../types'
 import {
   LogIn,
@@ -14,8 +14,10 @@ import {
   Download,
   Search,
   Calendar,
+  Trash2,
 } from 'lucide-react'
 import { ImportLogsModal } from './ImportLogsModal'
+import { isWithinLocalDateRange, toLocalDateOnly } from '../utils/date'
 
 interface Device {
   id: string
@@ -30,6 +32,7 @@ interface AccessLogListProps {
   logs: CheckInRecord[]
   onImport: () => void
   onSync: () => void
+  onDeleteLogs: (ids: string[]) => Promise<void>
   onImportWithDateRange?: (params: {
     deviceId: string
     deviceIp: string
@@ -47,6 +50,7 @@ export const AccessLogList: React.FC<AccessLogListProps> = ({
   logs,
   onImport,
   onSync,
+  onDeleteLogs,
   onImportWithDateRange,
   devices = [],
 }) => {
@@ -57,6 +61,8 @@ export const AccessLogList: React.FC<AccessLogListProps> = ({
   const [searchQuery, setSearchQuery] = useState('')
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
+  const [selectedLogIds, setSelectedLogIds] = useState<Set<string>>(new Set())
+  const [isDeleting, setIsDeleting] = useState(false)
 
   const handleFileClick = () => {
     fileInputRef.current?.click()
@@ -73,17 +79,20 @@ export const AccessLogList: React.FC<AccessLogListProps> = ({
       'ID',
       'Employee Name',
       'Employee ID',
+      'Biometric ID',
       'Department',
       'Timestamp',
       'Device',
       'Location',
       'Type',
       'Synced',
+      'ERP Sync Error',
     ]
     const rows = filteredLogs.map((log) => [
       log.id,
       log.employeeName,
       log.employeeId,
+      log.biometricId || '',
       log.department,
       new Date(log.timestamp).toLocaleString(),
       log.device,
@@ -96,6 +105,7 @@ export const AccessLogList: React.FC<AccessLogListProps> = ({
           : log.syncStatus === 3
             ? 'Error'
             : 'Pending',
+      log.syncError || '',
     ])
 
     const csvContent = [
@@ -109,7 +119,7 @@ export const AccessLogList: React.FC<AccessLogListProps> = ({
     link.href = url
     link.setAttribute(
       'download',
-      `access_logs_${new Date().toISOString().split('T')[0]}.csv`,
+      `access_logs_${toLocalDateOnly(new Date())}.csv`,
     )
     document.body.appendChild(link)
     link.click()
@@ -119,30 +129,18 @@ export const AccessLogList: React.FC<AccessLogListProps> = ({
   // Filter logs based on search and date range
   const filteredLogs = useMemo(() => {
     return logs.filter((log) => {
-      // Search filter (employee ID or name)
+      // Search filter (ERP employee ID, biometric ID, or name)
       if (searchQuery) {
         const query = searchQuery.toLowerCase()
         const matchesId = log.employeeId.toLowerCase().includes(query)
         const matchesName = log.employeeName.toLowerCase().includes(query)
-        if (!matchesId && !matchesName) return false
+        const matchesBiometricId = (log.biometricId || '')
+          .toLowerCase()
+          .includes(query)
+        if (!matchesId && !matchesName && !matchesBiometricId) return false
       }
 
-      // Date range filter
-      if (startDate) {
-        const logDate = new Date(log.timestamp)
-        const filterStart = new Date(startDate)
-        filterStart.setHours(0, 0, 0, 0)
-        if (logDate < filterStart) return false
-      }
-
-      if (endDate) {
-        const logDate = new Date(log.timestamp)
-        const filterEnd = new Date(endDate)
-        filterEnd.setHours(23, 59, 59, 999)
-        if (logDate > filterEnd) return false
-      }
-
-      return true
+      return isWithinLocalDateRange(log.timestamp, startDate, endDate)
     })
   }, [logs, searchQuery, startDate, endDate])
 
@@ -181,6 +179,62 @@ export const AccessLogList: React.FC<AccessLogListProps> = ({
     page * rowsPerPage,
     (page + 1) * rowsPerPage,
   )
+  const displayedLocalLogs = displayedLogs.filter(
+    (log) => log.isLocal !== false,
+  )
+
+  useEffect(() => {
+    const availableIds = new Set(logs.map((log) => log.id))
+    setSelectedLogIds((current) => {
+      const next = new Set(
+        Array.from(current).filter((id) => availableIds.has(id)),
+      )
+      return next.size === current.size ? current : next
+    })
+  }, [logs])
+
+  const allDisplayedSelected =
+    displayedLocalLogs.length > 0 &&
+    displayedLocalLogs.every((log) => selectedLogIds.has(log.id))
+
+  const toggleDisplayedLogs = () => {
+    setSelectedLogIds((current) => {
+      const next = new Set(current)
+      if (allDisplayedSelected) {
+        displayedLocalLogs.forEach((log) => next.delete(log.id))
+      } else {
+        displayedLocalLogs.forEach((log) => next.add(log.id))
+      }
+      return next
+    })
+  }
+
+  const toggleLog = (id: string) => {
+    setSelectedLogIds((current) => {
+      const next = new Set(current)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const handleDeleteSelected = async () => {
+    const ids = Array.from(selectedLogIds)
+    if (!ids.length) return
+
+    const confirmed = window.confirm(
+      `Delete ${ids.length} selected access log${ids.length === 1 ? '' : 's'} from this app? This will not delete check-ins already pushed to ERPNext.`,
+    )
+    if (!confirmed) return
+
+    setIsDeleting(true)
+    try {
+      await onDeleteLogs(ids)
+      setSelectedLogIds(new Set())
+    } finally {
+      setIsDeleting(false)
+    }
+  }
 
   const startRange = count === 0 ? 0 : page * rowsPerPage + 1
   const endRange = Math.min((page + 1) * rowsPerPage, count)
@@ -224,6 +278,19 @@ export const AccessLogList: React.FC<AccessLogListProps> = ({
             Export CSV
           </button>
 
+          {selectedLogIds.size > 0 && (
+            <button
+              onClick={handleDeleteSelected}
+              disabled={isDeleting}
+              className='flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 transition-colors shadow-sm disabled:opacity-60 disabled:cursor-not-allowed'
+            >
+              <Trash2 size={16} />
+              {isDeleting
+                ? 'Deleting...'
+                : `Delete Selected (${selectedLogIds.size})`}
+            </button>
+          )}
+
           <button
             onClick={onSync}
             className='flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors shadow-sm'
@@ -249,7 +316,7 @@ export const AccessLogList: React.FC<AccessLogListProps> = ({
           />
           <input
             type='text'
-            placeholder='Search by Employee ID or Name...'
+            placeholder='Search by employee name, ERP ID, or biometric ID...'
             value={searchQuery}
             onChange={(e) => handleSearchChange(e.target.value)}
             className='w-full pl-10 pr-4 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-600 rounded-lg text-sm text-slate-700 dark:text-slate-200 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500'
@@ -293,6 +360,16 @@ export const AccessLogList: React.FC<AccessLogListProps> = ({
           <table className='w-full text-left text-sm'>
             <thead className='bg-slate-50 dark:bg-slate-900/50 text-slate-500 dark:text-slate-400 border-b border-slate-200 dark:border-slate-700'>
               <tr>
+                <th className='px-4 py-4 w-12'>
+                  <input
+                    type='checkbox'
+                    checked={allDisplayedSelected}
+                    onChange={toggleDisplayedLogs}
+                    disabled={displayedLocalLogs.length === 0}
+                    aria-label='Select all logs on this page'
+                    className='h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 disabled:opacity-40'
+                  />
+                </th>
                 <th className='px-6 py-4 font-semibold text-xs uppercase tracking-wider'>
                   Timestamp
                 </th>
@@ -314,7 +391,7 @@ export const AccessLogList: React.FC<AccessLogListProps> = ({
               {displayedLogs.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={5}
+                    colSpan={6}
                     className='px-6 py-8 text-center text-slate-400 dark:text-slate-500'
                   >
                     No logs found. Waiting for device activity...
@@ -326,6 +403,21 @@ export const AccessLogList: React.FC<AccessLogListProps> = ({
                     key={log.id}
                     className='hover:bg-slate-50/60 dark:hover:bg-slate-700/50 transition-colors'
                   >
+                    <td className='px-4 py-4'>
+                      <input
+                        type='checkbox'
+                        checked={selectedLogIds.has(log.id)}
+                        onChange={() => toggleLog(log.id)}
+                        disabled={log.isLocal === false}
+                        aria-label={`Select log for ${log.employeeName}`}
+                        title={
+                          log.isLocal === false
+                            ? 'Only logs fetched into this app can be deleted here'
+                            : undefined
+                        }
+                        className='h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 disabled:opacity-40'
+                      />
+                    </td>
                     <td className='px-6 py-4 text-slate-600 dark:text-slate-400 font-mono text-xs whitespace-nowrap'>
                       {new Date(log.timestamp).toLocaleString()}
                     </td>
@@ -339,6 +431,13 @@ export const AccessLogList: React.FC<AccessLogListProps> = ({
                         <div>
                           <div className='font-semibold text-slate-800 dark:text-slate-200'>
                             {log.employeeName}
+                          </div>
+                          <div className='text-xs text-slate-500 dark:text-slate-400'>
+                            {log.employeeId}
+                            {log.biometricId &&
+                            log.biometricId !== log.employeeId
+                              ? ` · Biometric ${log.biometricId}`
+                              : ''}
                           </div>
                         </div>
                       </div>
@@ -384,10 +483,23 @@ export const AccessLogList: React.FC<AccessLogListProps> = ({
                           Duplicate
                         </span>
                       ) : log.syncStatus === 3 ? (
-                        <span className='inline-flex items-center gap-1.5 text-xs font-bold text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-900/30 px-2.5 py-1 rounded-md border border-red-200 dark:border-red-800'>
-                          <Clock size={14} />
-                          Error
-                        </span>
+                        <div className='inline-flex flex-col items-end gap-1 max-w-64'>
+                          <span
+                            title={log.syncError || undefined}
+                            className='inline-flex items-center gap-1.5 text-xs font-bold text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-900/30 px-2.5 py-1 rounded-md border border-red-200 dark:border-red-800'
+                          >
+                            <Clock size={14} />
+                            Error
+                          </span>
+                          {log.syncError && (
+                            <span
+                              title={log.syncError}
+                              className='block max-w-64 truncate text-[10px] font-medium text-red-600 dark:text-red-400'
+                            >
+                              {log.syncError}
+                            </span>
+                          )}
+                        </div>
                       ) : log.syncStatus === 4 ? (
                         <span className='inline-flex items-center gap-1.5 text-xs font-bold text-slate-600 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-2.5 py-1 rounded-md border border-slate-300 dark:border-slate-600'>
                           <Clock size={14} />

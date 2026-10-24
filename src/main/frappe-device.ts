@@ -25,6 +25,9 @@ export interface FrappeDevice {
   ip_address: string
   port: number
   is_active: boolean
+  location?: string | null
+  latitude?: number | null
+  longitude?: number | null
 }
 
 export interface LocalDevice {
@@ -36,6 +39,8 @@ export interface LocalDevice {
   comm_key?: string | null
   use_udp?: number
   instance_url?: string
+  latitude?: number | null
+  longitude?: number | null
 }
 
 export interface DeviceApiResult<T> {
@@ -148,6 +153,8 @@ export async function registerDevice(
     ip_address: device.ip,
     port: device.port,
     location: device.location || '', // Send location to Frappe
+    latitude: device.latitude ?? null,
+    longitude: device.longitude ?? null,
   }
 
   console.log('Frappe Device: Payload:', JSON.stringify(payload, null, 2))
@@ -176,6 +183,9 @@ export async function registerDevice(
         ip_address: device.ip,
         port: device.port,
         is_active: true,
+        location: device.location,
+        latitude: device.latitude,
+        longitude: device.longitude,
       },
     }
   } else {
@@ -270,7 +280,10 @@ export function mapFrappeToLocal(
     name: frappeDevice.device_name,
     ip: frappeDevice.ip_address,
     port: frappeDevice.port,
+    location: frappeDevice.location ?? undefined,
     instance_url: instanceUrl,
+    latitude: frappeDevice.latitude ?? null,
+    longitude: frappeDevice.longitude ?? null,
   }
 }
 
@@ -285,5 +298,8 @@ export function mapLocalToFrappe(
     ip_address: localDevice.ip,
     port: localDevice.port,
     is_active: true,
+    location: localDevice.location,
+    latitude: localDevice.latitude,
+    longitude: localDevice.longitude,
   }
 }

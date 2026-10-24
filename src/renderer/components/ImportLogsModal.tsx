@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { X, Calendar, Download, Loader2 } from 'lucide-react'
+import { toLocalDateOnly } from '../utils/date'
 
 interface Device {
   id: string
@@ -46,8 +47,8 @@ export const ImportLogsModal: React.FC<ImportLogsModalProps> = ({
       const sevenDaysAgo = new Date(today)
       sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
 
-      setEndDate(today.toISOString().split('T')[0])
-      setStartDate(sevenDaysAgo.toISOString().split('T')[0])
+      setEndDate(toLocalDateOnly(today) || '')
+      setStartDate(toLocalDateOnly(sevenDaysAgo) || '')
 
       // Select first device by default
       if (devices.length > 0 && !selectedDeviceId) {
@@ -75,7 +76,7 @@ export const ImportLogsModal: React.FC<ImportLogsModalProps> = ({
       setError('Please select both start and end dates')
       return
     }
-    if (new Date(startDate) > new Date(endDate)) {
+    if (startDate > endDate) {
       setError('Start date must be before end date')
       return
     }

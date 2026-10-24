@@ -9,6 +9,7 @@ export type Attendance = {
   timestamp: string // ISO
   status: 'IN' | 'OUT'
   synced: 0 | 1 | 2 | 3 | 4 // 0=pending, 1=synced, 2=duplicate, 3=error, 4=double-punch (ignored)
+  sync_error?: string | null
 }
 
 export type Device = {
@@ -54,6 +55,7 @@ export class Database {
         timestamp TEXT NOT NULL,
         status TEXT NOT NULL CHECK(status in ('IN','OUT')),
         synced INTEGER NOT NULL DEFAULT 0,
+        sync_error TEXT,
         FOREIGN KEY(device_id) REFERENCES devices(id)
       );
       CREATE INDEX IF NOT EXISTS idx_attendance_synced ON attendance(synced);
@@ -138,6 +140,19 @@ export class Database {
         console.log('Migration: Added latitude/longitude columns to devices table')
       }
     } catch {}
+
+    // Store the backend rejection reason for existing databases.
+    try {
+      const attendanceColumns = this.db
+        .prepare("PRAGMA table_info('attendance')")
+        .all() as any[]
+      if (!attendanceColumns.some((column) => column.name === 'sync_error')) {
+        this.db.exec('ALTER TABLE attendance ADD COLUMN sync_error TEXT')
+        console.log('Migration: Added sync_error column to attendance table')
+      }
+    } catch (error) {
+      console.warn('Migration: Could not add sync_error column', error)
+    }
   }
 
   static insertDevice(device: Device) {
@@ -301,6 +316,36 @@ export class Database {
     return info.changes
   }
 
+  static deleteAttendance(ids: number[], instanceUrl?: string): number {
+    const validIds = Array.from(
+      new Set(ids.filter((id) => Number.isInteger(id) && id > 0)),
+    )
+    if (!validIds.length) return 0
+
+    const stmt = instanceUrl
+      ? this.db.prepare(
+          `
+            DELETE FROM attendance
+            WHERE id = ?
+              AND device_id IN (
+                SELECT id FROM devices WHERE instance_url = ?
+              )
+          `,
+        )
+      : this.db.prepare('DELETE FROM attendance WHERE id = ?')
+
+    const remove = this.db.transaction((attendanceIds: number[]) => {
+      let deleted = 0
+      for (const id of attendanceIds) {
+        const result = instanceUrl ? stmt.run(id, instanceUrl) : stmt.run(id)
+        deleted += result.changes
+      }
+      return deleted
+    })
+
+    return remove(validIds)
+  }
+
   static deleteDevice(id: number) {
     // Remove dependent attendance rows first to satisfy FK constraint
     this.db.prepare('DELETE FROM attendance WHERE device_id=?').run(id)
@@ -327,7 +372,9 @@ export class Database {
 
   static markSynced(ids: number[]) {
     if (!ids.length) return
-    const stmt = this.db.prepare('UPDATE attendance SET synced=1 WHERE id=?')
+    const stmt = this.db.prepare(
+      'UPDATE attendance SET synced=1, sync_error=NULL WHERE id=?',
+    )
     const tx = this.db.transaction((rows: number[]) =>
       rows.forEach((id) => stmt.run(id)),
     )
@@ -336,7 +383,9 @@ export class Database {
 
   static resetSyncStatus(ids: number[]) {
     if (!ids.length) return
-    const stmt = this.db.prepare('UPDATE attendance SET synced=0 WHERE id=?')
+    const stmt = this.db.prepare(
+      'UPDATE attendance SET synced=0, sync_error=NULL WHERE id=?',
+    )
     const tx = this.db.transaction((rows: number[]) =>
       rows.forEach((id) => stmt.run(id)),
     )
@@ -367,7 +416,7 @@ export class Database {
       .prepare(
         `
         UPDATE attendance
-        SET synced=0
+        SET synced=0, sync_error=NULL
         WHERE datetime(timestamp) >= datetime(?)
           AND datetime(timestamp) <= datetime(?)
       `,
@@ -381,7 +430,9 @@ export class Database {
   // Mark logs as duplicate (synced=2) - these won't be retried
   static markDuplicate(ids: number[]) {
     if (!ids.length) return
-    const stmt = this.db.prepare('UPDATE attendance SET synced=2 WHERE id=?')
+    const stmt = this.db.prepare(
+      'UPDATE attendance SET synced=2, sync_error=NULL WHERE id=?',
+    )
     const tx = this.db.transaction((rows: number[]) =>
       rows.forEach((id) => stmt.run(id)),
     )
@@ -389,11 +440,21 @@ export class Database {
   }
 
   // Mark logs as error (synced=3) - employee not found, etc.
-  static markError(ids: number[]) {
+  static markError(
+    ids: number[],
+    errorDetails: Record<string, string> = {},
+  ) {
     if (!ids.length) return
-    const stmt = this.db.prepare('UPDATE attendance SET synced=3 WHERE id=?')
+    const stmt = this.db.prepare(
+      'UPDATE attendance SET synced=3, sync_error=? WHERE id=?',
+    )
     const tx = this.db.transaction((rows: number[]) =>
-      rows.forEach((id) => stmt.run(id)),
+      rows.forEach((id) =>
+        stmt.run(
+          errorDetails[String(id)] || 'ERPNext rejected this check-in.',
+          id,
+        ),
+      ),
     )
     tx(ids)
   }
@@ -401,7 +462,9 @@ export class Database {
   // Mark logs as double-punch (synced=4) - rapid successive punches ignored
   static markDoublePunch(ids: number[]) {
     if (!ids.length) return
-    const stmt = this.db.prepare('UPDATE attendance SET synced=4 WHERE id=?')
+    const stmt = this.db.prepare(
+      'UPDATE attendance SET synced=4, sync_error=NULL WHERE id=?',
+    )
     const tx = this.db.transaction((rows: number[]) =>
       rows.forEach((id) => stmt.run(id)),
     )

@@ -500,7 +500,8 @@ declare global {
           employee_id: string
           timestamp: string
           status: 'IN' | 'OUT'
-          synced: 0 | 1
+          synced: 0 | 1 | 2 | 3 | 4
+          sync_error?: string | null
         }[]
       >
       listAttendanceByDevice: (
@@ -512,7 +513,8 @@ declare global {
           employee_id: string
           timestamp: string
           status: 'IN' | 'OUT'
-          synced: 0 | 1
+          synced: 0 | 1 | 2 | 3 | 4
+          sync_error?: string | null
         }[]
       >
       listUnsyncedAttendance: () => Promise<
@@ -527,6 +529,9 @@ declare global {
       markAttendanceSynced: (
         ids: number[],
       ) => Promise<{ ok: true; updated: number }>
+      deleteAttendance: (
+        ids: number[],
+      ) => Promise<{ ok: true; deleted: number }>
       listDevices: () => Promise<
         {
           id: number
@@ -535,6 +540,9 @@ declare global {
           port: number
           comm_key?: string
           use_udp?: number
+          location?: string | null
+          latitude?: number | null
+          longitude?: number | null
         }[]
       >
       addDevice: (
@@ -544,7 +552,14 @@ declare global {
         opts?: { commKey?: string; useUdp?: boolean },
       ) => Promise<{ id: number }>
       removeDevice: (id: number) => Promise<void>
-      runSync: () => Promise<{ synced: number; errors: string[] }>
+      runSync: () => Promise<{
+        synced: number
+        errors: string[]
+        syncedIds?: Array<number | string>
+        duplicateIds?: Array<number | string>
+        errorIds?: Array<number | string>
+        errorDetails?: Record<string, string>
+      }>
       setCredentials: (baseUrl: string, auth: any) => Promise<void>
       getCredentials: () => Promise<{ baseUrl: string; auth: any } | null>
       login: (url: string, usr: string, pwd: string) => Promise<any>

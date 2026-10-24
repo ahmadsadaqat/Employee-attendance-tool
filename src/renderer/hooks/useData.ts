@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { FrappeApp } from 'frappe-js-sdk'
+import { toLocalDateOnly } from '../utils/date'
 
 // Helper to get the current Frappe client or constructed URL
 const getBaseUrl = () => {
@@ -136,8 +137,8 @@ export const useDeviceLogs = (enabled: boolean = false) => {
             device.useUdp === 1,
             { 
               doublePunchThreshold: threshold,
-              startDate: yesterday.toISOString().split('T')[0],
-              endDate: today.toISOString().split('T')[0]
+              startDate: toLocalDateOnly(yesterday),
+              endDate: toLocalDateOnly(today)
             },
           )
           
